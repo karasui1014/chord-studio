@@ -1,7 +1,7 @@
 /* Service Worker — オフライン対応 */
 'use strict';
 
-const CACHE = 'chord-studio-v1';
+const CACHE = 'chord-studio-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -35,11 +35,12 @@ self.addEventListener('activate', e => {
   );
 });
 
-/* ネットワーク優先: オンライン時は常に最新、オフライン時はキャッシュで動作 */
+/* ネットワーク優先: オンライン時は常に最新、オフライン時はキャッシュで動作
+ * cache: 'no-store' でブラウザのHTTPキャッシュも経由させず、常にサーバーの最新版を取りに行く */
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
-    fetch(e.request).then(res => {
+    fetch(e.request, { cache: 'no-store' }).then(res => {
       if (res.ok && new URL(e.request.url).origin === location.origin) {
         const clone = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, clone));
