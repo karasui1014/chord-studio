@@ -361,7 +361,7 @@ const Renderer = (() => {
         chip.dataset.endSec = c.endSec !== undefined ? c.endSec : '';
         const name = document.createElement('span');
         name.className = 'chord-chip-name';
-        name.textContent = c._cont ? '─' : c.label;
+        name.textContent = c._cont ? '%' : c.label; // % = 前小節と同じ(リピート記号)
         chip.appendChild(name);
         if (showDegree && !c._cont && c.degree) {
           const deg = document.createElement('span');

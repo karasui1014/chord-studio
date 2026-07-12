@@ -289,7 +289,32 @@ const Transcriber = (() => {
     return notes;
   }
 
-  function yieldUI() { return new Promise(r => setTimeout(r, 0)); }
+  // setTimeoutはバックグラウンドで1秒に絞られるため、MessageChannelで譲る
+  function yieldUI() {
+    return new Promise(r => {
+      const ch = new MessageChannel();
+      ch.port1.onmessage = () => r();
+      ch.port2.postMessage(0);
+    });
+  }
+
+  /* ミックスをWAV化(再生同期用の実音源) */
+  function mixToWavUrl(mix) {
+    const n = mix.length;
+    let peak = 1e-6;
+    for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(mix[i]));
+    const scale = Math.min(1, 0.9 / peak) * 32767;
+    const buf = new ArrayBuffer(44 + n * 2);
+    const dv = new DataView(buf);
+    const w = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt ');
+    dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+    dv.setUint32(24, SR, true); dv.setUint32(28, SR * 2, true);
+    dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+    w(36, 'data'); dv.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) dv.setInt16(44 + i * 2, Math.max(-32767, Math.min(32767, mix[i] * scale)), true);
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  }
 
   /* ---------- メイン: ステムファイル群 → ソングモデル ---------- */
   async function transcribeFiles(files, progressCb) {
@@ -313,6 +338,7 @@ const Transcriber = (() => {
       progressCb('コード進行とテンポを解析中…', (0.3 + 0.6 * p) / (total + 1)));
     const bpm = chordResult.bpm;
     const grid = makeBeatGrid(chordResult.beatTimes, bpm);
+    const mixWavUrl = mixToWavUrl(mix); // 再生同期用にミックスをそのまま聴けるようにする
 
     // 各ステムを採譜
     const tracks = [];
@@ -365,6 +391,7 @@ const Transcriber = (() => {
       totalBars: Math.max(chordResult.totalBars, Math.ceil(maxBeat / 4)),
       tracks,
       chordResult,
+      mixWavUrl,
       tickToSec: t => grid.beatToSec(t / ppq),
     };
   }

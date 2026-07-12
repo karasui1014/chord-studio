@@ -16,6 +16,7 @@
     key: null,
     title: '無題',
     transpose: 0,
+    capo: 0,
     showDegree: true,
     audioUrl: null,
     synth: null,
@@ -38,9 +39,14 @@
     setupUploaders();
     $('#btnDemo').addEventListener('click', loadDemo);
     $$('.tab-btn').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
-    $('#btnTransposeDown').addEventListener('click', () => { state.transpose--; renderChordPanel(); renderLyricsPanel(); });
-    $('#btnTransposeUp').addEventListener('click', () => { state.transpose++; renderChordPanel(); renderLyricsPanel(); });
-    $('#btnTransposeReset').addEventListener('click', () => { state.transpose = 0; renderChordPanel(); renderLyricsPanel(); });
+    $('#btnTransposeDown').addEventListener('click', () => { state.transpose--; renderShiftViews(); });
+    $('#btnTransposeUp').addEventListener('click', () => { state.transpose++; renderShiftViews(); });
+    $('#btnTransposeReset').addEventListener('click', () => { state.transpose = 0; renderShiftViews(); });
+    $('#capoSelect').addEventListener('change', () => {
+      state.capo = +$('#capoSelect').value;
+      renderShiftViews();
+    });
+    $('#btnAutoCapo').addEventListener('click', autoCapo);
     $('#btnDegree').addEventListener('click', () => {
       state.showDegree = !state.showDegree;
       $('#btnDegree').classList.toggle('on', state.showDegree);
@@ -98,6 +104,7 @@
   async function handleStemAudioFiles(files) {
     stopAllPlayback();
     resetLyrics();
+    if (state.song && state.song.mixWavUrl) URL.revokeObjectURL(state.song.mixWavUrl);
     state.title = files.length === 1
       ? files[0].name.replace(/\.[^.]+$/, '')
       : `ステム採譜 (${files.length}ファイル)`;
@@ -141,6 +148,17 @@
   /* ==================== 音源解析 ==================== */
   async function handleAudioFile(file) {
     stopAllPlayback();
+    if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
+    state.audioUrl = URL.createObjectURL(file);
+
+    // すでにステム/MIDIの採譜結果がある場合は、再生用音源として差し込むだけ
+    // (採譜結果・歌詞はそのまま。表示と実音源が同期して聴けるようになる)
+    if (state.song && state.activeSource === 'midi') {
+      renderPlayback();
+      showUploadNotice('楽曲ファイルを再生用にセットしました。採譜結果はそのまま、実音源と同期して再生できます。');
+      return;
+    }
+
     resetLyrics();
     state.title = file.name.replace(/\.[^.]+$/, '');
     showProgress('音源を解析中… (端末内で処理・アップロードはしていません)');
@@ -152,8 +170,7 @@
       state.chords = result.chords;
       state.key = result.key;
       state.transpose = 0;
-      if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
-      state.audioUrl = URL.createObjectURL(file);
+      state.capo = 0;
       hideProgress();
       renderResults();
     } catch (err) {
@@ -167,6 +184,7 @@
   async function handleMidiFiles(files) {
     stopAllPlayback();
     resetLyrics();
+    if (state.song && state.song.mixWavUrl) URL.revokeObjectURL(state.song.mixWavUrl);
     showProgress('MIDIを解析中…');
     try {
       const parsed = [];
@@ -334,19 +352,32 @@
   }
 
   /* ==================== 再生 ==================== */
+  // 優先順: ①読み込んだ楽曲ファイル ②ステム合成ミックス ③簡易シンセ
+  // 実音源で再生すればコード・歌詞ハイライトが実時間に正確に同期する
   function renderPlayback() {
     const holder = $('#playbackArea');
     holder.innerHTML = '';
-    if (state.activeSource === 'audio' && state.audioUrl) {
+    const realUrl = state.audioUrl || (state.song && state.song.mixWavUrl) || null;
+    if (realUrl) {
       const audio = document.createElement('audio');
       audio.controls = true;
-      audio.src = state.audioUrl;
+      audio.src = realUrl;
       audio.id = 'audioPlayer';
       holder.appendChild(audio);
-      audio.addEventListener('play', () => startHighlightLoop(() => audio.currentTime));
+      if (!state.audioUrl && state.song && state.song.mixWavUrl) {
+        const note = document.createElement('span');
+        note.className = 'hint';
+        note.textContent = ' ステムを合成した実音源で再生(表示と同期します)';
+        holder.appendChild(note);
+      }
+      audio.addEventListener('play', () => {
+        stopMidiPlayback();
+        startHighlightLoop(() => audio.currentTime);
+      });
       audio.addEventListener('pause', stopHighlightLoop);
       audio.addEventListener('ended', stopHighlightLoop);
-    } else if (state.activeSource === 'midi') {
+    }
+    if (state.activeSource === 'midi') {
       const btn = document.createElement('button');
       btn.className = 'btn btn-play';
       btn.id = 'btnMidiPlay';
@@ -402,6 +433,8 @@
 
   function toggleMidiPlayback() {
     if (state.synth) { stopMidiPlayback(); return; }
+    const player = $('#audioPlayer');
+    if (player) player.pause();
     const song = state.song;
     const AC = window.AudioContext || window.webkitAudioContext;
     const ctx = new AC();
@@ -478,11 +511,24 @@
   }
 
   /* ==================== コード進行パネル ==================== */
-  function transposedChords() {
-    if (state.transpose === 0) return state.chords;
-    const key = transposedKey();
+  // 表示シフト = 移調 − カポ(カポ装着時は「押さえるフォーム」のコード名で表示)
+  function displayShift() { return state.transpose - state.capo; }
+
+  function displayedKey() {
+    if (!state.key) return null;
+    return { ...state.key, tonic: ((state.key.tonic + displayShift()) % 12 + 12) % 12 };
+  }
+  function transposedKey() {
+    if (!state.key) return null;
+    return { ...state.key, tonic: ((state.key.tonic + state.transpose) % 12 + 12) % 12 };
+  }
+
+  function displayedChords() {
+    const shift = displayShift();
+    if (shift === 0) return state.chords;
+    const key = displayedKey();
     return state.chords.map(c => {
-      const root = ((c.root + state.transpose) % 12 + 12) % 12;
+      const root = ((c.root + shift) % 12 + 12) % 12;
       return {
         ...c, root,
         label: Theory.chordLabel(root, c.suffix, key, null),
@@ -490,9 +536,38 @@
       };
     });
   }
-  function transposedKey() {
-    if (!state.key) return null;
-    return { ...state.key, tonic: ((state.key.tonic + state.transpose) % 12 + 12) % 12 };
+
+  function renderShiftViews() {
+    renderChordPanel();
+    renderGuitarPanel();
+    renderLyricsPanel();
+  }
+
+  // かんたんコード: オープンコードが最も多くなるカポ位置を自動提案
+  function autoCapo() {
+    if (!state.chords.length) return;
+    const weight = new Map();
+    let totalW = 0;
+    for (const c of state.chords) {
+      const root = ((c.root + state.transpose) % 12 + 12) % 12;
+      const k = root + ':' + c.suffix;
+      const w = (c.endBeat - c.startBeat) || 1;
+      weight.set(k, (weight.get(k) || 0) + w);
+      totalW += w;
+    }
+    let best = { capo: 0, score: -Infinity };
+    for (let capo = 0; capo <= 7; capo++) {
+      let s = 0;
+      for (const [k, w] of weight) {
+        const [rootStr, suffix] = k.split(':');
+        if (Theory.hasOpenShape(+rootStr - capo, suffix)) s += w;
+      }
+      s -= capo * totalW * 0.015; // 僅差なら低いカポを優先
+      if (s > best.score) best = { capo, score: s };
+    }
+    state.capo = best.capo;
+    $('#capoSelect').value = String(best.capo);
+    renderShiftViews();
   }
 
   function renderChordPanel() {
@@ -502,14 +577,18 @@
     holder.innerHTML = '';
     strip.innerHTML = '';
     $('#transposeVal').textContent = (state.transpose > 0 ? '+' : '') + state.transpose;
-    const key = transposedKey();
-    $('#chordKeyLabel').textContent = key ? 'キー: ' + Theory.keyLabel(key) : '';
-    const chords = transposedChords();
+    const actualKey = transposedKey();
+    let keyText = actualKey ? 'キー: ' + Theory.keyLabel(actualKey) : '';
+    if (state.capo > 0 && actualKey) {
+      keyText += ` | カポ${state.capo} → ${Theory.keyLabel(displayedKey())}フォームで表示中`;
+    }
+    $('#chordKeyLabel').textContent = keyText;
+    const chords = displayedChords();
     if (chords.length === 0) {
       holder.innerHTML = '<p class="hint">コードが検出できませんでした。</p>';
       return;
     }
-    strip.appendChild(Renderer.usedChordStrip(state.chords, state.key, state.transpose));
+    strip.appendChild(Renderer.usedChordStrip(state.chords, state.key, displayShift()));
     holder.appendChild(Renderer.chordGrid(chords, {
       beatsPerBar: m.beatsPerBar, totalBars: m.totalBars, showDegree: state.showDegree,
     }));
@@ -545,7 +624,7 @@
     const stride = L.barsPerLine === 'auto'
       ? avail / sungCount
       : Number(L.barsPerLine);
-    const chords = transposedChords();
+    const chords = displayedChords();
     let cursor = startBar;
     const out = [];
     for (const line of L.lines) {
@@ -760,10 +839,13 @@
     for (const tr of tracks) {
       const sec = document.createElement('div');
       sec.className = 'inst-section';
-      sec.innerHTML = `<h3 class="inst-title">🎸 ${escapeHtml(tr.name)}</h3>`;
+      const capoNote = state.capo > 0
+        ? ` <span class="badge badge-midi">カポ ${state.capo}(${state.capo}フレットに装着)</span>`
+        : '';
+      sec.innerHTML = `<h3 class="inst-title">🎸 ${escapeHtml(tr.name)}${capoNote}</h3>`;
 
-      // 使用コードのダイアグラム
-      sec.appendChild(Renderer.usedChordStrip(state.chords, state.key, 0));
+      // 使用コードのダイアグラム(カポ適用後の押さえるフォーム)
+      sec.appendChild(Renderer.usedChordStrip(state.chords, state.key, displayShift()));
 
       const events = notesToEvents(tr.notes);
       const assigned = Theory.assignFrets(events, Theory.GUITAR_TUNING);

@@ -9,8 +9,9 @@ const Theory = (() => {
 
   const NOTE_SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const NOTE_FLAT  = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
-  const DOREMI_SHARP = ['ド', 'ド♯', 'レ', 'レ♯', 'ミ', 'ファ', 'ファ♯', 'ソ', 'ソ♯', 'ラ', 'ラ♯', 'シ'];
-  const DOREMI_FLAT  = ['ド', 'レ♭', 'レ', 'ミ♭', 'ミ', 'ファ', 'ソ♭', 'ソ', 'ラ♭', 'ラ', 'シ♭', 'シ'];
+  // 環境による文字化けを避けるため記号はASCII(# / b)で表記
+  const DOREMI_SHARP = ['ド', 'ド#', 'レ', 'レ#', 'ミ', 'ファ', 'ファ#', 'ソ', 'ソ#', 'ラ', 'ラ#', 'シ'];
+  const DOREMI_FLAT  = ['ド', 'レb', 'レ', 'ミb', 'ミ', 'ファ', 'ソb', 'ソ', 'ラb', 'ラ', 'シb', 'シ'];
 
   // フラット表記を使うキー(メジャートニックのpc)
   const FLAT_KEYS = new Set([5, 10, 3, 8, 1, 6]); // F, Bb, Eb, Ab, Db, Gb
@@ -91,18 +92,15 @@ const Theory = (() => {
                                 : FLAT_KEYS.has((key.tonic + 3) % 12);
   }
 
-  /* ---------- ディグリーネーム ---------- */
-  const ROMAN = ['Ⅰ', '♭Ⅱ', 'Ⅱ', '♭Ⅲ', 'Ⅲ', 'Ⅳ', '♭Ⅴ', 'Ⅴ', '♭Ⅵ', 'Ⅵ', '♭Ⅶ', 'Ⅶ'];
-  const ROMAN_MINOR = ['Ⅰ', '♭Ⅱ', 'Ⅱ', 'Ⅲ', '♯Ⅲ', 'Ⅳ', '♭Ⅴ', 'Ⅴ', 'Ⅵ', '♯Ⅵ', 'Ⅶ', '♯Ⅶ'];
+  /* ---------- ディグリーネーム (文字化け対策でASCII表記) ---------- */
+  const ROMAN = ['I', 'bII', 'II', 'bIII', 'III', 'IV', 'bV', 'V', 'bVI', 'VI', 'bVII', 'VII'];
+  const ROMAN_MINOR = ['I', 'bII', 'II', 'III', '#III', 'IV', 'bV', 'V', 'VI', '#VI', 'VII', '#VII'];
 
   function degreeName(rootPc, suffix, key) {
     if (!key) return '';
     const iv = ((rootPc - key.tonic) % 12 + 12) % 12;
     const table = key.mode === 'minor' ? ROMAN_MINOR : ROMAN;
-    let suf = suffix;
-    if (suf === 'M7') suf = '△7';
-    if (suf === '') suf = '';
-    return table[iv] + suf;
+    return table[iv] + suffix;
   }
 
   /* ---------- コード判定(ピッチクラス重みベクトル → コード) ---------- */
@@ -236,6 +234,12 @@ const Theory = (() => {
   const GUITAR_TUNING = [40, 45, 50, 55, 59, 64]; // E2 A2 D3 G3 B3 E4 (弦6→1)
   const BASS_TUNING = [28, 33, 38, 43];           // E1 A1 D2 G2 (弦4→1)
 
+  // オープンコード辞書にあるか(カポ提案用)
+  function hasOpenShape(rootPc, suffix) {
+    rootPc = ((rootPc % 12) + 12) % 12;
+    return !!(OPEN_SHAPES[NOTE_SHARP[rootPc] + suffix] || OPEN_SHAPES[NOTE_FLAT[rootPc] + suffix]);
+  }
+
   // コード名 → 押さえ方 { frets:[6..1], baseFret, barre }
   function guitarShape(rootPc, suffix, useFlat) {
     const nameS = NOTE_SHARP[rootPc] + suffix;
@@ -363,6 +367,6 @@ const Theory = (() => {
   return {
     NOTE_SHARP, NOTE_FLAT, GUITAR_TUNING, BASS_TUNING, CHORD_TYPES,
     pcName, doremi, midiToName, detectKey, keyLabel, keyUsesFlat,
-    degreeName, matchChord, chordLabel, guitarShape, assignFrets,
+    degreeName, matchChord, chordLabel, guitarShape, hasOpenShape, assignFrets,
   };
 })();

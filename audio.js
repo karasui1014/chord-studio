@@ -109,7 +109,12 @@ const AudioAnalyzer = (() => {
       prevMag = mag;
       if (progressCb && fr % 32 === 0) {
         progressCb(0.05 + 0.75 * fr / nFrames);
-        await new Promise(r => setTimeout(r, 0));
+        // setTimeoutはバックグラウンドで絞られるためMessageChannelで譲る
+        await new Promise(r => {
+          const ch = new MessageChannel();
+          ch.port1.onmessage = () => r();
+          ch.port2.postMessage(0);
+        });
       }
     }
 

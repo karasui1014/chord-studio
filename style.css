@@ -184,6 +184,12 @@ main { max-width: 1080px; margin: 0 auto; padding: 0 20px 60px; }
 .chord-key-label { font-weight: 700; color: var(--accent); font-size: 15px; }
 .transpose-group { display: flex; align-items: center; gap: 6px; }
 .ctrl-label { color: var(--text-dim); font-size: 13px; }
+.ctrl-select {
+  font-family: inherit; font-size: 13.5px;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+}
+.order-hint { margin-top: 12px; }
 .transpose-val { min-width: 34px; text-align: center; font-weight: 700; font-size: 15px; }
 
 .used-chords {

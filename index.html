@@ -50,6 +50,7 @@
       <button class="btn btn-ghost" id="btnDemo">✨ デモ楽曲で試してみる</button>
       <p class="privacy-note">🔒 ファイルは<strong>ブラウザ内(端末内)だけ</strong>で解析されます。サーバーへのアップロードは一切ありません。</p>
     </div>
+    <p class="hint order-hint">💡 おすすめの順番: ① ステム分離ファイル(採譜) → ② 音源ファイル(元の楽曲を再生用にセット) → ③ 歌詞タブで歌詞を貼り付け — 3つ揃うと、実音源を聴きながらコード・歌詞・譜面が同期します。</p>
     <div id="uploadNotice" class="upload-notice" hidden></div>
   </section>
 
@@ -78,10 +79,24 @@
         <span id="chordKeyLabel" class="chord-key-label"></span>
         <div class="transpose-group">
           <span class="ctrl-label">移調</span>
-          <button class="btn btn-small" id="btnTransposeDown">♭</button>
+          <button class="btn btn-small" id="btnTransposeDown">b</button>
           <span class="transpose-val" id="transposeVal">0</span>
-          <button class="btn btn-small" id="btnTransposeUp">♯</button>
+          <button class="btn btn-small" id="btnTransposeUp">#</button>
           <button class="btn btn-small" id="btnTransposeReset">リセット</button>
+        </div>
+        <div class="transpose-group">
+          <span class="ctrl-label">カポ</span>
+          <select id="capoSelect" class="ctrl-select">
+            <option value="0">なし</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+          </select>
+          <button class="btn btn-small" id="btnAutoCapo">🎸 かんたんコード(自動)</button>
         </div>
         <button class="btn btn-small on" id="btnDegree">ディグリー表示</button>
       </div>
