@@ -38,11 +38,11 @@
         <span class="upload-cta">クリック or ドラッグ&ドロップ</span>
       </label>
       <label class="upload-card" id="midiCard">
-        <input type="file" id="midiInput" accept=".mid,.midi,audio/midi" multiple hidden>
+        <input type="file" id="midiInput" accept=".mid,.midi,audio/midi,audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac" multiple hidden>
         <span class="upload-icon">🎹</span>
-        <span class="upload-title">ステム分離MIDI</span>
-        <span class="upload-desc">.mid 複数ファイルOK(楽器別ステム)<br>ギターTAB・ベースTAB・五線譜を生成</span>
-        <span class="upload-badge badge-midi">高精度採譜</span>
+        <span class="upload-title">ステム分離ファイル</span>
+        <span class="upload-desc">楽器別の .mid / mp3 / wav をまとめて選択OK<br>ギターTAB・ベースTAB・五線譜を生成</span>
+        <span class="upload-badge badge-midi">MIDI=高精度 / 音源=自動採譜</span>
         <span class="upload-cta">クリック or ドラッグ&ドロップ</span>
       </label>
     </div>
@@ -111,8 +111,8 @@
     <h2 class="section-title">🎯 高精度採譜ガイド</h2>
     <ol class="guide-steps">
       <li><strong>ステム分離</strong> — 楽曲をボーカル・ギター・ベース・ドラム・その他に分離します(Suno のステムダウンロード、Moises、Demucs など)。</li>
-      <li><strong>MIDI変換</strong> — 各ステムをMIDIに変換します(Basic Pitch、Melodyne、Klangio など)。楽器ごとに1ファイルずつが理想です。</li>
-      <li><strong>このツールに読み込み</strong> — 変換したMIDIをまとめて「ステム分離MIDI」へドラッグ&ドロップ。ファイル名に「bass」「guitar」「piano」などが入っていると自動で楽器を判別します。</li>
+      <li><strong>このツールに読み込み</strong> — 分離したステム音源(mp3/wav)をそのまま「ステム分離ファイル」へまとめてドラッグ&ドロップ。ツール内で自動採譜します(ベース・ボーカルは高精度、ギター・鍵盤の和音は参考精度)。ファイル名に「bass」「guitar」「keyboard」などが入っていると自動で楽器を判別します。</li>
+      <li><strong>さらに精度を上げたいとき</strong> — 各ステムを Basic Pitch、Melodyne、Klangio などでMIDIに変換してから読み込むと、和音系も高精度になります。</li>
       <li><strong>確認 & 共有</strong> — TAB譜・五線譜・コード進行を確認し、簡易シンセ再生で答え合わせ。参考採譜パックをダウンロードして共有できます。</li>
     </ol>
     <p class="hint">💡 音源ファイル直接のコード解析は「参考精度」です。正確なタブ譜・楽譜が必要なときは、ステム分離 → MIDI変換の手順をおすすめします。</p>
@@ -137,6 +137,7 @@
 <script src="theory.js"></script>
 <script src="midi.js"></script>
 <script src="audio.js"></script>
+<script src="transcribe.js"></script>
 <script src="render.js"></script>
 <script src="export.js"></script>
 <script src="app.js"></script>

@@ -68,25 +68,54 @@
       handleAudioFile(f);
     });
     midiInput.addEventListener('change', () => {
-      const files = [...midiInput.files];
-      if (files.length === 0) return;
-      const mids = files.filter(f => /\.(midi?|MIDI?)$/i.test(f.name));
-      if (mids.length === 0) {
-        showUploadNotice('ここは「.midファイル」専用です。mp3/wavなどの音源ファイルは、まず Basic Pitch などでMIDIに変換してから読み込んでください(左の「音源ファイル」ならmp3のまま解析できます)。');
-        return;
-      }
-      handleMidiFiles(mids);
+      routeStemFiles([...midiInput.files]);
     });
     setupDrop($('#audioCard'), files => {
       const f = files.find(f => /\.(mp3|wav|m4a|aac|ogg|flac|webm)$/i.test(f.name) || f.type.startsWith('audio/'));
       if (f) handleAudioFile(f);
       else showUploadNotice('音源ファイル(mp3 / wav / m4a など)をお使いください。');
     });
-    setupDrop($('#midiCard'), files => {
-      const mids = files.filter(f => /\.(midi?|MIDI?)$/i.test(f.name));
-      if (mids.length) { handleMidiFiles(mids); return; }
-      showUploadNotice('ここは「.midファイル」専用です。mp3/wavなどの音源ファイルは、まず Basic Pitch などでMIDIに変換してから読み込んでください(左の「音源ファイル」ならmp3のまま解析できます)。');
-    });
+    setupDrop($('#midiCard'), files => routeStemFiles(files));
+  }
+
+  // ステム欄: MIDIはパーサへ、音源(mp3/wav等)は自動採譜エンジンへ振り分け
+  function routeStemFiles(files) {
+    if (files.length === 0) return;
+    const mids = files.filter(f => /\.(midi?|MIDI?)$/i.test(f.name));
+    const audios = files.filter(f =>
+      !/\.(midi?|MIDI?)$/i.test(f.name) &&
+      (/\.(mp3|wav|m4a|aac|ogg|flac|webm)$/i.test(f.name) || f.type.startsWith('audio/')));
+    if (mids.length && audios.length) {
+      showUploadNotice('MIDIと音源ファイルが混ざっています。どちらか一方だけを選んでください。');
+      return;
+    }
+    if (mids.length) { handleMidiFiles(mids); return; }
+    if (audios.length) { handleStemAudioFiles(audios); return; }
+    showUploadNotice('対応形式は .mid / mp3 / wav / m4a などです。');
+  }
+
+  /* ==================== ステム音源の自動採譜 ==================== */
+  async function handleStemAudioFiles(files) {
+    stopAllPlayback();
+    resetLyrics();
+    state.title = files.length === 1
+      ? files[0].name.replace(/\.[^.]+$/, '')
+      : `ステム採譜 (${files.length}ファイル)`;
+    showProgress('ステム音源を読み込み中… (端末内で処理・アップロードはしていません)');
+    try {
+      const song = await Transcriber.transcribeFiles(files, (msg, p) => {
+        $('#progressMsg').textContent = msg + ' — 端末内で処理中';
+        setProgress(Math.min(0.99, p));
+      });
+      state.song = song;
+      reanalyzeMidi();
+      hideProgress();
+      renderResults();
+    } catch (err) {
+      hideProgress();
+      alert('ステム音源の採譜に失敗しました: ' + err.message);
+      console.error(err);
+    }
   }
 
   function showUploadNotice(msg) {
@@ -166,11 +195,18 @@
 
   function reanalyzeMidi() {
     const song = state.song;
-    const { key, chords } = MidiParser.analyzeChords(song);
-    // 再生同期用に秒も持たせる
-    for (const c of chords) {
-      c.startSec = song.tickToSec(c.startBeat * song.ppq);
-      c.endSec = song.tickToSec(c.endBeat * song.ppq);
+    let key, chords;
+    if (song.kind === 'stems' && song.chordResult) {
+      // ステム採譜: 全ステム合算ミックスのクロマ解析結果をそのまま使う
+      key = song.chordResult.key;
+      chords = song.chordResult.chords;
+    } else {
+      ({ key, chords } = MidiParser.analyzeChords(song));
+      // 再生同期用に秒も持たせる
+      for (const c of chords) {
+        c.startSec = song.tickToSec(c.startBeat * song.ppq);
+        c.endSec = song.tickToSec(c.endBeat * song.ppq);
+      }
     }
     state.activeSource = 'midi';
     state.chords = chords;
@@ -284,7 +320,9 @@
   function renderSummary() {
     const m = currentMeta();
     const srcLabel = state.activeSource === 'midi'
-      ? '<span class="badge badge-midi">MIDI採譜(高精度)</span>'
+      ? (state.song && state.song.kind === 'stems'
+          ? '<span class="badge badge-audio">ステム自動採譜</span>'
+          : '<span class="badge badge-midi">MIDI採譜(高精度)</span>')
       : '<span class="badge badge-audio">音源解析(参考精度)</span>';
     $('#summaryBar').innerHTML = `
       ${srcLabel}
@@ -315,7 +353,51 @@
       btn.textContent = '▶ 採譜結果を再生 (簡易シンセ)';
       btn.addEventListener('click', toggleMidiPlayback);
       holder.appendChild(btn);
+      if (state.song && state.song.kind === 'stems') {
+        const half = document.createElement('button');
+        half.className = 'btn btn-small';
+        half.textContent = 'テンポ÷2';
+        half.addEventListener('click', () => scaleTempo(0.5));
+        const dbl = document.createElement('button');
+        dbl.className = 'btn btn-small';
+        dbl.textContent = 'テンポ×2';
+        dbl.addEventListener('click', () => scaleTempo(2));
+        const note = document.createElement('span');
+        note.className = 'hint';
+        note.textContent = ' BPMや小節の数え方が倍/半分にズレているときに押してください';
+        holder.appendChild(dbl);
+        holder.appendChild(half);
+        holder.appendChild(note);
+      }
     }
+  }
+
+  // ステム採譜のテンポ倍/半分補正(ビート格子ごと掛け直す)
+  function scaleTempo(factor) {
+    const song = state.song;
+    if (!song) return;
+    stopAllPlayback();
+    song.bpm = Math.round(song.bpm * factor * 10) / 10;
+    const oldTickToSec = song.tickToSec;
+    song.tickToSec = t => oldTickToSec(t / factor);
+    for (const tr of song.tracks) {
+      for (const n of tr.notes) {
+        n.beat *= factor;
+        n.durBeat *= factor;
+        n.tick = Math.round(n.beat * song.ppq);
+        n.durTick = Math.max(1, Math.round(n.durBeat * song.ppq));
+      }
+    }
+    if (song.chordResult) {
+      for (const c of song.chordResult.chords) {
+        c.startBeat *= factor;
+        c.endBeat *= factor;
+      }
+      song.chordResult.totalBars = Math.max(1, Math.ceil(song.chordResult.totalBars * factor));
+    }
+    song.totalBars = Math.max(1, Math.ceil(song.totalBars * factor));
+    reanalyzeMidi();
+    renderResults();
   }
 
   function toggleMidiPlayback() {
@@ -800,7 +882,9 @@
     const tbody = document.createElement('tbody');
     state.song.tracks.forEach((tr, i) => {
       const pitches = tr.notes.map(n => n.pitch);
-      const lo = Math.min(...pitches), hi = Math.max(...pitches);
+      const range = pitches.length
+        ? `${Theory.midiToName(Math.min(...pitches))} 〜 ${Theory.midiToName(Math.max(...pitches))}`
+        : '—';
       const row = document.createElement('tr');
       const sel = document.createElement('select');
       for (const role in ROLE_LABELS) {
@@ -822,7 +906,7 @@
       });
       row.innerHTML = `<td>${escapeHtml(tr.name)}</td>
         <td>${tr.notes.length}</td>
-        <td>${Theory.midiToName(lo)} 〜 ${Theory.midiToName(hi)}</td>`;
+        <td>${range}</td>`;
       const td = document.createElement('td');
       td.appendChild(sel);
       row.appendChild(td);

@@ -288,8 +288,10 @@ const MidiParser = (() => {
       }
     }
 
-    // 半小節単位で判定(動きがあれば拍単位に分割)
-    const half = Math.max(1, Math.round(song.beatsPerBar / 2));
+    // 半小節単位で判定(ステム自動採譜は残響の混入があるため1小節単位)
+    const half = song.kind === 'stems'
+      ? Math.max(1, Math.round(song.beatsPerBar))
+      : Math.max(1, Math.round(song.beatsPerBar / 2));
     const segs = [];
     for (let b = 0; b < totalBeats; b += half) {
       const vec = new Array(12).fill(0);

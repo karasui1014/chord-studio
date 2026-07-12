@@ -1,7 +1,7 @@
 /* Service Worker — オフライン対応 */
 'use strict';
 
-const CACHE = 'chord-studio-v2';
+const CACHE = 'chord-studio-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -9,6 +9,7 @@ const ASSETS = [
   './theory.js',
   './midi.js',
   './audio.js',
+  './transcribe.js',
   './render.js',
   './export.js',
   './app.js',

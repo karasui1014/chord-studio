@@ -44,13 +44,16 @@ const AudioAnalyzer = (() => {
     const ctx = new AC();
     const buf = await ctx.decodeAudioData(arrayBuffer.slice(0));
     ctx.close();
+    return analyzeMono(downmix(buf), buf.sampleRate, progressCb);
+  }
 
-    const sr = buf.sampleRate;
-    const mono = downmix(buf);
-    const duration = buf.duration;
+  /* モノラルFloat32Arrayを直接解析(ステム採譜からも利用) */
+  async function analyzeMono(mono, sr, progressCb) {
+    const duration = mono.length / sr;
 
-    const winSize = 8192;
-    const hop = 4096;
+    // フレーム長はサンプルレートに応じて約90msホップに揃える
+    const winSize = sr >= 32000 ? 8192 : 4096;
+    const hop = winSize / 2;
     const nFrames = Math.max(1, Math.floor((mono.length - winSize) / hop));
     const hann = new Float32Array(winSize);
     for (let i = 0; i < winSize; i++) hann[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / winSize);
@@ -225,26 +228,62 @@ const AudioAnalyzer = (() => {
   function estimateBeats(flux, frameDur, duration) {
     const n = flux.length;
     // 正規化 & ローカル平均差分
-    const env = new Float32Array(n);
+    const dif = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       let m = 0, c = 0;
       for (let j = Math.max(0, i - 8); j < Math.min(n, i + 8); j++) { m += flux[j]; c++; }
-      env[i] = Math.max(0, flux[i] - m / c);
+      dif[i] = Math.max(0, flux[i] - m / c);
     }
-    let best = { bpm: 120, score: -1 };
-    for (let bpm = 60; bpm <= 190; bpm += 0.5) {
-      const lag = 60 / bpm / frameDur;
+    // 鋭いオンセット(生ドラム等)でも±1フレームのずれを許容できるよう平滑化
+    const KERNEL = [0.3, 0.7, 1, 0.7, 0.3];
+    const env = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      let s = 0;
+      for (let k = -2; k <= 2; k++) {
+        const j = i + k;
+        if (j >= 0 && j < n) s += dif[j] * KERNEL[k + 2];
+      }
+      env[i] = s;
+    }
+    function combScore(bpmCand) {
+      const lag = 60 / bpmCand / frameDur;
       let s = 0, c = 0;
       for (let i = 0; i + Math.round(lag * 4) < n; i++) {
         s += env[i] * (env[i + Math.round(lag)] + 0.5 * env[i + Math.round(lag * 2)] + 0.25 * env[i + Math.round(lag * 4)]);
         c++;
       }
-      if (c > 0) {
-        s /= c;
-        // 中庸なテンポを優先
-        const pref = Math.exp(-Math.pow((bpm - 118) / 55, 2) * 0.5);
-        s *= (0.75 + 0.25 * pref);
-        if (s > best.score) best = { bpm, score: s };
+      if (c === 0) return 0;
+      // 中庸なテンポを優先
+      const pref = Math.exp(-Math.pow((bpmCand - 118) / 55, 2) * 0.5);
+      return (s / c) * (0.75 + 0.25 * pref);
+    }
+    let best = { bpm: 120, score: -1 };
+    for (let bpmCand = 60; bpmCand <= 190; bpmCand += 0.5) {
+      const s = combScore(bpmCand);
+      if (s > best.score) best = { bpm: bpmCand, score: s };
+    }
+    // 半分テンポに落ちていないか判定。
+    // オンセット間隔の中央値が推定ビートの約半分なら、実際は2倍テンポとみなす
+    let peakThresh = 0;
+    for (let i = 0; i < n; i++) peakThresh = Math.max(peakThresh, env[i]);
+    peakThresh *= 0.18;
+    const onsetFrames = [];
+    for (let i = 2; i < n - 2; i++) {
+      if (env[i] > peakThresh && env[i] >= env[i - 1] && env[i] >= env[i + 1] &&
+          (onsetFrames.length === 0 || i - onsetFrames[onsetFrames.length - 1] > 2)) {
+        onsetFrames.push(i);
+      }
+    }
+    const iois = [];
+    for (let i = 1; i < onsetFrames.length; i++) iois.push((onsetFrames[i] - onsetFrames[i - 1]) * frameDur);
+    iois.sort((a, b) => a - b);
+    const medianIOI = iois.length ? iois[Math.floor(iois.length / 2)] : 0;
+    if (best.bpm * 2 <= 160) {
+      const dbl = combScore(best.bpm * 2);
+      const beatDurBest = 60 / best.bpm;
+      const halfTempoSuspect = medianIOI > 0 && Math.abs(medianIOI - beatDurBest / 2) < beatDurBest * 0.12;
+      if (dbl >= best.score * 0.9 || (halfTempoSuspect && dbl >= best.score * 0.6)) {
+        best = { bpm: best.bpm * 2, score: dbl };
       }
     }
     const bpm = Math.round(best.bpm * 10) / 10;
@@ -342,5 +381,5 @@ const AudioAnalyzer = (() => {
     });
   }
 
-  return { analyze };
+  return { analyze, analyzeMono, fft };
 })();
