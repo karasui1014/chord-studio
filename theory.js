@@ -234,10 +234,15 @@ const Theory = (() => {
   const GUITAR_TUNING = [40, 45, 50, 55, 59, 64]; // E2 A2 D3 G3 B3 E4 (弦6→1)
   const BASS_TUNING = [28, 33, 38, 43];           // E1 A1 D2 G2 (弦4→1)
 
-  // オープンコード辞書にあるか(カポ提案用)
+  // 「かんたんに押さえられる」コードか(カポ提案用)。
+  // 辞書に載っていてもバレー必須のフォームは除外する
+  const BARRE_NAMES = new Set(['F', 'B', 'Bm', 'F#m']);
   function hasOpenShape(rootPc, suffix) {
     rootPc = ((rootPc % 12) + 12) % 12;
-    return !!(OPEN_SHAPES[NOTE_SHARP[rootPc] + suffix] || OPEN_SHAPES[NOTE_FLAT[rootPc] + suffix]);
+    const nameS = NOTE_SHARP[rootPc] + suffix;
+    const nameF = NOTE_FLAT[rootPc] + suffix;
+    if (BARRE_NAMES.has(nameS) || BARRE_NAMES.has(nameF)) return false;
+    return !!(OPEN_SHAPES[nameS] || OPEN_SHAPES[nameF]);
   }
 
   // コード名 → 押さえ方 { frets:[6..1], baseFret, barre }
