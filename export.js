@@ -181,6 +181,32 @@ const Exporter = (() => {
     return lines.join('\n');
   }
 
+  /* ---------- コード付き歌詞シート ---------- */
+  // layout: computeLyricsLayoutの出力 [{blank} | {text, bar, chords:[{label,pos}]}]
+  // コードは歌詞の文字位置に合わせて上の行に配置する(等幅フォント想定)
+  function lyricsSheet(layout, meta) {
+    const out = [header(meta)];
+    out.push('[コード付き歌詞]');
+    out.push('');
+    for (const line of layout) {
+      if (line.blank) { out.push(''); continue; }
+      // 日本語は等幅で2桁分として文字位置を計算
+      const width = [...line.text].reduce((a, ch) => a + (ch.charCodeAt(0) > 0xff ? 2 : 1), 0);
+      let chordLine = '';
+      for (const c of line.chords) {
+        const col = Math.round(c.pos * Math.max(width, 8));
+        if (col > chordLine.length) chordLine += ' '.repeat(col - chordLine.length);
+        else if (chordLine.length > 0) chordLine += ' ';
+        chordLine += c.label;
+      }
+      out.push(`   ${chordLine}`);
+      out.push(`${String(line.bar).padStart(3)}|${line.text}`);
+    }
+    out.push('');
+    out.push('(行頭の数字=小節番号 / コードの位置はおおよその目安です)');
+    return out.join('\n');
+  }
+
   /* ---------- まとめパック ---------- */
   function fullPack(parts, meta) {
     const lines = [header(meta)];
@@ -196,5 +222,5 @@ const Exporter = (() => {
     window.print();
   }
 
-  return { download, chordSheet, textTab, doremiSheet, fullPack, printPage, header };
+  return { download, chordSheet, textTab, doremiSheet, lyricsSheet, fullPack, printPage, header };
 })();

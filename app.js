@@ -20,6 +20,8 @@
     audioUrl: null,
     synth: null,
     rafId: null,
+    currentGetTime: null,  // 再生中: 現在時刻(秒)を返す関数。停止中はnull
+    lyrics: { raw: '', lines: [], editing: true, startBar: 1, barsPerLine: 'auto' },
   };
 
   const ROLE_LABELS = {
@@ -36,9 +38,9 @@
     setupUploaders();
     $('#btnDemo').addEventListener('click', loadDemo);
     $$('.tab-btn').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
-    $('#btnTransposeDown').addEventListener('click', () => { state.transpose--; renderChordPanel(); });
-    $('#btnTransposeUp').addEventListener('click', () => { state.transpose++; renderChordPanel(); });
-    $('#btnTransposeReset').addEventListener('click', () => { state.transpose = 0; renderChordPanel(); });
+    $('#btnTransposeDown').addEventListener('click', () => { state.transpose--; renderChordPanel(); renderLyricsPanel(); });
+    $('#btnTransposeUp').addEventListener('click', () => { state.transpose++; renderChordPanel(); renderLyricsPanel(); });
+    $('#btnTransposeReset').addEventListener('click', () => { state.transpose = 0; renderChordPanel(); renderLyricsPanel(); });
     $('#btnDegree').addEventListener('click', () => {
       state.showDegree = !state.showDegree;
       $('#btnDegree').classList.toggle('on', state.showDegree);
@@ -57,19 +59,43 @@
     const audioInput = $('#audioInput');
     const midiInput = $('#midiInput');
     audioInput.addEventListener('change', () => {
-      if (audioInput.files.length) handleAudioFile(audioInput.files[0]);
+      const f = audioInput.files[0];
+      if (!f) return;
+      if (/\.(mid|midi)$/i.test(f.name)) {
+        showUploadNotice('それはMIDIファイルのようです。右の「ステム分離MIDI」へどうぞ。');
+        return;
+      }
+      handleAudioFile(f);
     });
     midiInput.addEventListener('change', () => {
-      if (midiInput.files.length) handleMidiFiles([...midiInput.files]);
+      const files = [...midiInput.files];
+      if (files.length === 0) return;
+      const mids = files.filter(f => /\.(midi?|MIDI?)$/i.test(f.name));
+      if (mids.length === 0) {
+        showUploadNotice('ここは「.midファイル」専用です。mp3/wavなどの音源ファイルは、まず Basic Pitch などでMIDIに変換してから読み込んでください(左の「音源ファイル」ならmp3のまま解析できます)。');
+        return;
+      }
+      handleMidiFiles(mids);
     });
     setupDrop($('#audioCard'), files => {
       const f = files.find(f => /\.(mp3|wav|m4a|aac|ogg|flac|webm)$/i.test(f.name) || f.type.startsWith('audio/'));
       if (f) handleAudioFile(f);
+      else showUploadNotice('音源ファイル(mp3 / wav / m4a など)をお使いください。');
     });
     setupDrop($('#midiCard'), files => {
       const mids = files.filter(f => /\.(midi?|MIDI?)$/i.test(f.name));
-      if (mids.length) handleMidiFiles(mids);
+      if (mids.length) { handleMidiFiles(mids); return; }
+      showUploadNotice('ここは「.midファイル」専用です。mp3/wavなどの音源ファイルは、まず Basic Pitch などでMIDIに変換してから読み込んでください(左の「音源ファイル」ならmp3のまま解析できます)。');
     });
+  }
+
+  function showUploadNotice(msg) {
+    const el = $('#uploadNotice');
+    if (!el) return;
+    el.textContent = '⚠️ ' + msg;
+    el.hidden = false;
+    clearTimeout(state.noticeTimer);
+    state.noticeTimer = setTimeout(() => { el.hidden = true; }, 8000);
   }
 
   function setupDrop(elCard, cb) {
@@ -86,6 +112,7 @@
   /* ==================== 音源解析 ==================== */
   async function handleAudioFile(file) {
     stopAllPlayback();
+    resetLyrics();
     state.title = file.name.replace(/\.[^.]+$/, '');
     showProgress('音源を解析中… (端末内で処理・アップロードはしていません)');
     try {
@@ -110,6 +137,7 @@
   /* ==================== MIDI解析 ==================== */
   async function handleMidiFiles(files) {
     stopAllPlayback();
+    resetLyrics();
     showProgress('MIDIを解析中…');
     try {
       const parsed = [];
@@ -152,6 +180,7 @@
   /* ==================== デモデータ ==================== */
   function loadDemo() {
     stopAllPlayback();
+    resetLyrics();
     state.title = 'デモ楽曲 (C-G-Am-F)';
     const ppq = 480, bpm = 92;
     const spb = 60 / bpm;
@@ -219,6 +248,10 @@
     $('#progressSection').hidden = true;
   }
 
+  function resetLyrics() {
+    state.lyrics = { raw: '', lines: [], editing: true, startBar: 1, barsPerLine: 'auto' };
+  }
+
   /* ==================== 結果描画 ==================== */
   function renderResults() {
     $('#resultsSection').hidden = false;
@@ -229,6 +262,7 @@
     renderBassPanel();
     renderKeysPanel();
     renderTracksPanel();
+    renderLyricsPanel();
     switchTab('chords');
     $('#resultsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -343,20 +377,22 @@
 
   function startHighlightLoop(getTime) {
     stopHighlightLoop();
-    const chips = $$('#panel-chords .chord-chip');
+    state.currentGetTime = getTime;
+    const targets = [...$$('#panel-chords .chord-chip'), ...$$('#panel-lyrics .ly-line')];
     state.hlTimer = setInterval(() => {
       const t = getTime();
-      for (const chip of chips) {
-        const s = parseFloat(chip.dataset.startSec);
-        const e = parseFloat(chip.dataset.endSec);
-        chip.classList.toggle('now', !isNaN(s) && !isNaN(e) && t >= s && t < e);
+      for (const el of targets) {
+        const s = parseFloat(el.dataset.startSec);
+        const e = parseFloat(el.dataset.endSec);
+        el.classList.toggle('now', !isNaN(s) && !isNaN(e) && t >= s && t < e);
       }
     }, 100);
   }
   function stopHighlightLoop() {
     if (state.hlTimer) clearInterval(state.hlTimer);
     state.hlTimer = null;
-    $$('.chord-chip.now').forEach(c => c.classList.remove('now'));
+    state.currentGetTime = null;
+    $$('.chord-chip.now, .ly-line.now').forEach(c => c.classList.remove('now'));
   }
 
   /* ==================== コード進行パネル ==================== */
@@ -395,6 +431,209 @@
     holder.appendChild(Renderer.chordGrid(chords, {
       beatsPerBar: m.beatsPerBar, totalBars: m.totalBars, showDegree: state.showDegree,
     }));
+  }
+
+  /* ==================== 歌詞パネル (自動割り付け) ==================== */
+  // 歌詞を貼るだけで、行数と小節数からコード付き歌詞シートを自動生成する。
+  // 音声認識による自動同期は端末内完結の方針(外部送信なし)と精度の面から行わない。
+
+  function beatToSec(beat) {
+    if (state.activeSource === 'midi' && state.song) {
+      return state.song.tickToSec(beat * state.song.ppq);
+    }
+    const ar = state.audioResult;
+    if (ar && ar.beatTimes && ar.beatTimes.length > 1) {
+      const bt = ar.beatTimes;
+      const i = Math.floor(beat);
+      if (i >= bt.length - 1) return bt[bt.length - 1];
+      return bt[Math.max(0, i)] + (bt[i + 1] - bt[i]) * (beat - i);
+    }
+    const m = currentMeta();
+    return beat * 60 / (m.bpm || 120);
+  }
+
+  // 歌詞行 → 小節範囲 → コードの自動割り付け
+  function computeLyricsLayout() {
+    const L = state.lyrics;
+    const m = currentMeta();
+    const sungCount = L.lines.filter(l => !l.blank).length;
+    if (sungCount === 0) return [];
+    const startBar = Math.max(0, (L.startBar || 1) - 1);
+    const avail = Math.max(1, m.totalBars - startBar);
+    const stride = L.barsPerLine === 'auto'
+      ? avail / sungCount
+      : Number(L.barsPerLine);
+    const chords = transposedChords();
+    let cursor = startBar;
+    const out = [];
+    for (const line of L.lines) {
+      if (line.blank) { out.push({ blank: true }); continue; }
+      const b0 = cursor, b1 = cursor + stride;
+      cursor = b1;
+      const startBeat = b0 * m.beatsPerBar;
+      const endBeat = b1 * m.beatsPerBar;
+      const lineChords = chords
+        .filter(c => c.startBeat < endBeat && c.endBeat > startBeat)
+        .map(c => ({
+          label: c.label,
+          pos: Math.max(0, (c.startBeat - startBeat) / (endBeat - startBeat)),
+        }));
+      out.push({
+        text: line.text,
+        bar: Math.floor(b0) + 1,
+        startBeat, endBeat,
+        startSec: beatToSec(startBeat),
+        endSec: beatToSec(endBeat),
+        chords: lineChords,
+      });
+    }
+    return out;
+  }
+
+  function renderLyricsPanel() {
+    const holder = $('#lyricsHolder');
+    if (!holder) return;
+    holder.innerHTML = '';
+    const L = state.lyrics;
+
+    if (L.editing || L.lines.length === 0) {
+      const wrap = document.createElement('div');
+      wrap.className = 'lyrics-edit';
+      const p = document.createElement('p');
+      p.className = 'hint';
+      p.textContent = '歌詞を貼り付けて「セット」を押すと、行数と小節数からコード付き歌詞シートを自動生成します。空行はセクション区切りになります。';
+      const ta = document.createElement('textarea');
+      ta.className = 'lyrics-textarea';
+      ta.placeholder = '歌詞をここに貼り付け…\n(空行を入れるとAメロ/サビなどの区切りになります)';
+      ta.value = L.raw;
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-primary';
+      btn.textContent = '📝 歌詞をセットしてシート生成';
+      btn.addEventListener('click', () => {
+        L.raw = ta.value;
+        const lines = [];
+        let prevBlank = true; // 先頭の空行は捨てる
+        for (const s of ta.value.split('\n').map(s => s.trim())) {
+          if (s.length === 0) {
+            if (!prevBlank) lines.push({ blank: true });
+            prevBlank = true;
+          } else {
+            lines.push({ text: s });
+            prevBlank = false;
+          }
+        }
+        while (lines.length && lines[lines.length - 1].blank) lines.pop();
+        L.lines = lines;
+        L.editing = false;
+        renderLyricsPanel();
+      });
+      wrap.appendChild(p);
+      wrap.appendChild(ta);
+      wrap.appendChild(btn);
+      holder.appendChild(wrap);
+      return;
+    }
+
+    // 調整コントロール
+    const m = currentMeta();
+    const bar = document.createElement('div');
+    bar.className = 'ly-controls';
+
+    const startLabel = document.createElement('label');
+    startLabel.className = 'ly-ctrl';
+    startLabel.textContent = '歌い出しの小節 ';
+    const startInput = document.createElement('input');
+    startInput.type = 'number';
+    startInput.min = 1;
+    startInput.max = m.totalBars;
+    startInput.value = L.startBar;
+    startInput.addEventListener('change', () => {
+      L.startBar = Math.max(1, Math.min(m.totalBars, Math.round(+startInput.value || 1)));
+      renderLyricsPanel();
+    });
+    startLabel.appendChild(startInput);
+    bar.appendChild(startLabel);
+
+    const strideLabel = document.createElement('label');
+    strideLabel.className = 'ly-ctrl';
+    strideLabel.textContent = '1行あたりの小節数 ';
+    const strideSel = document.createElement('select');
+    for (const [v, t] of [['auto', '自動'], ['1', '1小節'], ['2', '2小節'], ['4', '4小節'], ['8', '8小節']]) {
+      const opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = t;
+      if (String(L.barsPerLine) === v) opt.selected = true;
+      strideSel.appendChild(opt);
+    }
+    strideSel.addEventListener('change', () => {
+      L.barsPerLine = strideSel.value === 'auto' ? 'auto' : +strideSel.value;
+      renderLyricsPanel();
+    });
+    strideLabel.appendChild(strideSel);
+    bar.appendChild(strideLabel);
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn btn-small';
+    editBtn.textContent = '✏️ 歌詞を編集';
+    editBtn.addEventListener('click', () => { L.editing = true; renderLyricsPanel(); });
+    bar.appendChild(editBtn);
+
+    const dlBtn = document.createElement('button');
+    dlBtn.className = 'btn btn-small';
+    dlBtn.textContent = '📄 コード付き歌詞をダウンロード (.txt)';
+    dlBtn.addEventListener('click', () => {
+      Exporter.download(
+        Exporter.lyricsSheet(computeLyricsLayout(), currentMeta()),
+        `${state.title}_コード付き歌詞.txt`);
+    });
+    bar.appendChild(dlBtn);
+    holder.appendChild(bar);
+
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = '再生すると今歌っている行がハイライトされます。ズレるときは「歌い出しの小節」(イントロの長さぶん)と「1行あたりの小節数」を調整してください。';
+    holder.appendChild(hint);
+
+    // シート本体
+    const sheet = document.createElement('div');
+    sheet.className = 'ly-sheet';
+    for (const line of computeLyricsLayout()) {
+      if (line.blank) {
+        const gap = document.createElement('div');
+        gap.className = 'ly-gap';
+        sheet.appendChild(gap);
+        continue;
+      }
+      const row = document.createElement('div');
+      row.className = 'ly-line';
+      row.dataset.startSec = line.startSec;
+      row.dataset.endSec = line.endSec;
+
+      const num = document.createElement('span');
+      num.className = 'ly-bar-num';
+      num.textContent = line.bar;
+      row.appendChild(num);
+
+      const body = document.createElement('div');
+      body.className = 'ly-body';
+      const chordRow = document.createElement('div');
+      chordRow.className = 'ly-chords';
+      for (const c of line.chords) {
+        const chip = document.createElement('span');
+        chip.className = 'ly-chord';
+        chip.style.left = (c.pos * 100).toFixed(1) + '%';
+        chip.textContent = c.label;
+        chordRow.appendChild(chip);
+      }
+      const text = document.createElement('div');
+      text.className = 'ly-text';
+      text.textContent = line.text;
+      body.appendChild(chordRow);
+      body.appendChild(text);
+      row.appendChild(body);
+      sheet.appendChild(row);
+    }
+    holder.appendChild(sheet);
   }
 
   /* ==================== 楽器イベント抽出 ==================== */
@@ -579,6 +818,7 @@
         renderGuitarPanel();
         renderBassPanel();
         renderKeysPanel();
+        renderLyricsPanel();
       });
       row.innerHTML = `<td>${escapeHtml(tr.name)}</td>
         <td>${tr.notes.length}</td>
@@ -615,6 +855,9 @@
     const m = currentMeta();
     const parts = [];
     parts.push(Exporter.chordSheet(state.chords, m).split('\n').slice(7).join('\n'));
+    if (state.lyrics.lines.length > 0) {
+      parts.push(Exporter.lyricsSheet(computeLyricsLayout(), m).split('\n').slice(7).join('\n'));
+    }
     if (state.activeSource === 'midi') {
       for (const tr of tracksByRole('guitar')) {
         const assigned = Theory.assignFrets(notesToEvents(tr.notes), Theory.GUITAR_TUNING);

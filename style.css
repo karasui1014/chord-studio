@@ -94,6 +94,16 @@ main { max-width: 1080px; margin: 0 auto; padding: 0 20px 60px; }
 .privacy-note { color: var(--text-dim); font-size: 12.5px; }
 .privacy-note strong { color: var(--accent); }
 
+.upload-notice {
+  margin-top: 14px;
+  background: rgba(244, 184, 96, .12);
+  border: 1px solid rgba(244, 184, 96, .4);
+  color: var(--accent-warm);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 13.5px;
+}
+
 /* ---------- ボタン ---------- */
 .btn {
   font-family: inherit;
@@ -209,6 +219,46 @@ main { max-width: 1080px; margin: 0 auto; padding: 0 20px 60px; }
 .chord-chip.now .chord-chip-name { color: var(--accent); }
 .chord-rest { color: var(--text-dim); }
 
+/* ---------- 歌詞 (コード付き歌詞シート) ---------- */
+.lyrics-edit { display: grid; gap: 12px; max-width: 640px; }
+.lyrics-textarea {
+  width: 100%; min-height: 220px; resize: vertical;
+  font-family: inherit; font-size: 14.5px; line-height: 1.8;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+}
+.lyrics-textarea::placeholder { color: var(--text-dim); }
+
+.ly-controls {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.ly-ctrl { color: var(--text-dim); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.ly-ctrl input, .ly-ctrl select {
+  font-family: inherit; font-size: 13.5px;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+}
+.ly-ctrl input { width: 72px; }
+
+.ly-sheet { max-width: 760px; margin-top: 14px; display: grid; gap: 2px; }
+.ly-gap { height: 22px; }
+.ly-line {
+  display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: end;
+  padding: 4px 10px 6px; border-radius: 8px;
+}
+.ly-bar-num { color: var(--text-dim); font-size: 11px; font-family: ui-monospace, monospace; padding-bottom: 4px; }
+.ly-body { position: relative; }
+.ly-chords { position: relative; height: 20px; }
+.ly-chord {
+  position: absolute; bottom: 0;
+  font-weight: 800; font-size: 13.5px; color: var(--accent);
+  white-space: nowrap;
+}
+.ly-text { font-size: 15.5px; line-height: 1.5; }
+.ly-line.now { background: rgba(55, 211, 192, .14); box-shadow: 0 0 0 1.5px var(--accent); }
+.ly-line.now .ly-text { color: var(--accent); font-weight: 700; }
+
 /* ---------- 譜面共通 ---------- */
 .inst-section { margin-bottom: 34px; }
 .inst-title { font-size: 17px; margin-bottom: 12px; }
@@ -306,6 +356,10 @@ main { max-width: 1080px; margin: 0 auto; padding: 0 20px 60px; }
   .summary-bar, .chord-bar { border-color: #ccc; background: #fff; color: #111; }
   .summary-item, .summary-item strong, .chord-chip-name { color: #111; }
   .chord-chip-degree, .chord-bar-num { color: #666; }
+  .lyrics-edit, .ly-controls { display: none !important; }
+  .ly-text { color: #111; }
+  .ly-chord { color: #0f766e; }
+  .ly-bar-num { color: #666; }
   .score-scroll { overflow: visible; box-shadow: none; }
   .used-chord { box-shadow: none; border: 1px solid #ddd; }
   body.print-all .panel { display: block !important; page-break-inside: avoid; }

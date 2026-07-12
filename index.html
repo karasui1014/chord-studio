@@ -50,6 +50,7 @@
       <button class="btn btn-ghost" id="btnDemo">✨ デモ楽曲で試してみる</button>
       <p class="privacy-note">🔒 ファイルは<strong>ブラウザ内(端末内)だけ</strong>で解析されます。サーバーへのアップロードは一切ありません。</p>
     </div>
+    <div id="uploadNotice" class="upload-notice" hidden></div>
   </section>
 
   <!-- プログレス -->
@@ -65,6 +66,7 @@
 
     <nav class="tabs" aria-label="表示切替">
       <button class="tab-btn active" data-tab="chords">🎼 コード進行</button>
+      <button class="tab-btn" data-tab="lyrics">📝 歌詞同期</button>
       <button class="tab-btn" data-tab="guitar">🎸 ギター</button>
       <button class="tab-btn" data-tab="bass">🎸 ベース</button>
       <button class="tab-btn" data-tab="keys">🎹 鍵盤</button>
@@ -86,6 +88,8 @@
       <div id="usedChordsHolder"></div>
       <div id="chordGridHolder"></div>
     </div>
+
+    <div class="panel" id="panel-lyrics"><div id="lyricsHolder"></div></div>
 
     <div class="panel" id="panel-guitar"><div id="guitarHolder"></div></div>
     <div class="panel" id="panel-bass"><div id="bassHolder"></div></div>
