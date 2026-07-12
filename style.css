@@ -1,0 +1,314 @@
+/* =========================================================
+ * コード採譜スタジオ — スタイル
+ * ダークなスタジオ調 + 譜面は紙風で見やすく
+ * ======================================================= */
+
+:root {
+  --bg: #0e1116;
+  --bg-soft: #151a21;
+  --panel: #1a212b;
+  --panel-2: #202a36;
+  --line: #2c3844;
+  --border: #2b3543;
+  --text: #e8edf4;
+  --text-dim: #9aa7b8;
+  --accent: #37d3c0;
+  --accent-2: #8b7bf4;
+  --accent-warm: #f4b860;
+  --danger: #f47b7b;
+  --paper: #fdfcf8;
+  --paper-ink: #1d2430;
+  --radius: 14px;
+  --shadow: 0 8px 28px rgba(0, 0, 0, .35);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", system-ui, -apple-system, sans-serif;
+  background:
+    radial-gradient(1100px 500px at 85% -10%, rgba(139, 123, 244, .13), transparent 60%),
+    radial-gradient(900px 480px at 0% 0%, rgba(55, 211, 192, .10), transparent 55%),
+    var(--bg);
+  color: var(--text);
+  line-height: 1.65;
+  min-height: 100vh;
+}
+
+main { max-width: 1080px; margin: 0 auto; padding: 0 20px 60px; }
+
+/* ---------- ヘッダー ---------- */
+.site-header {
+  max-width: 1080px; margin: 0 auto; padding: 34px 20px 10px;
+}
+.logo-block { display: flex; align-items: center; gap: 16px; }
+.logo-mark {
+  width: 54px; height: 54px; border-radius: 16px; flex-shrink: 0;
+  display: grid; place-items: center;
+  font-size: 28px; color: #0b0e13; font-weight: 700;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 6px 18px rgba(55, 211, 192, .35);
+}
+.site-title {
+  font-size: 26px; font-weight: 800; letter-spacing: .02em;
+  background: linear-gradient(90deg, #fff, #b9e8e2);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.site-tagline { color: var(--text-dim); font-size: 13.5px; }
+
+/* ---------- アップロード ---------- */
+.upload-section { margin-top: 26px; }
+.upload-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
+}
+@media (max-width: 720px) { .upload-grid { grid-template-columns: 1fr; } }
+
+.upload-card {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: linear-gradient(180deg, var(--panel), var(--bg-soft));
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 30px 22px 24px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color .2s, transform .15s, box-shadow .2s;
+}
+.upload-card:hover, .upload-card.dragover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+.upload-icon { font-size: 40px; }
+.upload-title { font-size: 19px; font-weight: 700; }
+.upload-desc { color: var(--text-dim); font-size: 13px; }
+.upload-cta { color: var(--accent); font-size: 12.5px; margin-top: 6px; }
+.upload-badge {
+  font-size: 12px; font-weight: 700; padding: 3px 12px; border-radius: 99px; margin-top: 4px;
+}
+.badge-audio { background: rgba(244, 184, 96, .16); color: var(--accent-warm); }
+.badge-midi { background: rgba(55, 211, 192, .16); color: var(--accent); }
+
+.upload-footer { margin-top: 16px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.privacy-note { color: var(--text-dim); font-size: 12.5px; }
+.privacy-note strong { color: var(--accent); }
+
+/* ---------- ボタン ---------- */
+.btn {
+  font-family: inherit;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, transform .1s;
+}
+.btn:hover { background: #26313f; border-color: #3a4757; transform: translateY(-1px); }
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), #2ab5a5);
+  color: #07211d; font-weight: 700; border: none;
+}
+.btn-primary:hover { background: linear-gradient(135deg, #45e2cf, #2ab5a5); }
+.btn-ghost { background: transparent; border-color: var(--accent); color: var(--accent); }
+.btn-small { padding: 5px 12px; font-size: 13px; border-radius: 8px; }
+.btn.on { border-color: var(--accent); color: var(--accent); background: rgba(55, 211, 192, .1); }
+.btn-play { font-weight: 700; }
+.btn-play.playing { border-color: var(--danger); color: var(--danger); }
+.btn-export { font-size: 13px; }
+
+/* ---------- プログレス ---------- */
+.progress-section {
+  margin-top: 26px; background: var(--panel); border-radius: var(--radius);
+  padding: 22px; border: 1px solid var(--border);
+}
+.progress-section p { color: var(--text-dim); font-size: 14px; margin-bottom: 12px; }
+.progress-track { height: 10px; background: var(--bg); border-radius: 99px; overflow: hidden; }
+.progress-bar {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  border-radius: 99px; transition: width .25s;
+}
+
+/* ---------- 結果 ---------- */
+.results-section { margin-top: 30px; }
+.summary-bar {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 18px;
+}
+.summary-title { font-weight: 700; font-size: 15px; }
+.summary-item { color: var(--text-dim); font-size: 13.5px; }
+.summary-item strong { color: var(--text); font-size: 15px; margin-left: 4px; }
+.badge {
+  font-size: 11.5px; font-weight: 700; padding: 3px 10px; border-radius: 99px;
+}
+
+.playback-area { margin-top: 14px; }
+.playback-area audio { width: 100%; border-radius: 10px; }
+
+/* ---------- タブ ---------- */
+.tabs {
+  display: flex; gap: 6px; margin-top: 20px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--border); padding-bottom: 0;
+}
+.tab-btn {
+  font-family: inherit; font-size: 14.5px; font-weight: 600;
+  background: transparent; color: var(--text-dim);
+  border: none; border-bottom: 3px solid transparent;
+  padding: 10px 16px; cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.panel { display: none; padding: 20px 0; }
+.panel.active { display: block; }
+
+/* ---------- コード進行 ---------- */
+.chord-controls {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 16px;
+}
+.chord-key-label { font-weight: 700; color: var(--accent); font-size: 15px; }
+.transpose-group { display: flex; align-items: center; gap: 6px; }
+.ctrl-label { color: var(--text-dim); font-size: 13px; }
+.transpose-val { min-width: 34px; text-align: center; font-weight: 700; font-size: 15px; }
+
+.used-chords {
+  display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px;
+}
+.used-chord {
+  background: var(--paper); border-radius: 10px; padding: 4px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .3);
+}
+.chord-diagram { width: 88px; height: auto; display: block; }
+
+.chord-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+@media (max-width: 720px) { .chord-grid { grid-template-columns: repeat(2, 1fr); } }
+.chord-bar {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 8px 10px; min-height: 64px; position: relative;
+}
+.chord-bar-num {
+  position: absolute; top: 5px; right: 9px;
+  color: var(--text-dim); font-size: 10.5px;
+}
+.chord-bar-inner { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; min-height: 46px; }
+.chord-chip { display: flex; flex-direction: column; align-items: center; border-radius: 8px; padding: 3px 8px; transition: background .15s, box-shadow .15s; }
+.chord-chip-name { font-weight: 800; font-size: 16.5px; letter-spacing: .01em; }
+.chord-chip-degree { font-size: 10.5px; color: var(--text-dim); }
+.chord-chip.cont .chord-chip-name { color: var(--text-dim); font-weight: 400; }
+.chord-chip.now {
+  background: rgba(55, 211, 192, .18);
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+.chord-chip.now .chord-chip-name { color: var(--accent); }
+.chord-rest { color: var(--text-dim); }
+
+/* ---------- 譜面共通 ---------- */
+.inst-section { margin-bottom: 34px; }
+.inst-title { font-size: 17px; margin-bottom: 12px; }
+.score-scroll {
+  overflow-x: auto; border-radius: 12px; margin-top: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .35);
+}
+.score-svg { display: block; min-width: 700px; width: 100%; height: auto; }
+.score-bg { fill: var(--paper); }
+.bar-number { fill: #9aa2ad; font-size: 10px; font-family: inherit; }
+
+/* TAB譜 */
+.tab-string { stroke: #b9beca; stroke-width: 1; }
+.tab-barline { stroke: #6b7280; stroke-width: 1.4; }
+.tab-string-name { fill: #6b7280; font-size: 11px; font-weight: 700; font-family: ui-monospace, monospace; }
+.tab-chord-name { fill: #0f766e; font-size: 13px; font-weight: 800; font-family: inherit; }
+.tab-num { fill: var(--paper-ink); font-size: 12px; font-weight: 700; font-family: ui-monospace, monospace; }
+.tab-num-bg { fill: var(--paper); }
+
+/* 五線譜 */
+.staff-line { stroke: #8b93a1; stroke-width: 1; }
+.staff-barline { stroke: #5d6673; stroke-width: 1.4; }
+.clef { fill: var(--paper-ink); font-size: 44px; font-family: serif; }
+.clef-bass { font-size: 34px; }
+.staff-chord-name { fill: #0f766e; font-size: 13px; font-weight: 800; font-family: inherit; }
+.note-head { fill: var(--paper-ink); }
+.note-head.hollow { fill: var(--paper); stroke: var(--paper-ink); stroke-width: 1.6; }
+.note-stem { stroke: var(--paper-ink); stroke-width: 1.3; }
+.note-flag { fill: none; stroke: var(--paper-ink); stroke-width: 1.6; }
+.accidental { fill: var(--paper-ink); font-size: 13px; font-family: inherit; }
+.doremi-label { fill: #7c4dbd; font-size: 9.5px; font-weight: 700; font-family: inherit; }
+
+/* コードダイアグラム(紙上) */
+.cd-label { fill: var(--paper-ink); font-size: 14px; font-weight: 800; font-family: inherit; }
+.cd-line { stroke: #6b7280; stroke-width: 1; }
+.cd-nut { fill: var(--paper-ink); }
+.cd-dot { fill: var(--paper-ink); }
+.cd-open { fill: none; stroke: var(--paper-ink); stroke-width: 1.4; }
+.cd-mute { fill: #9199a5; font-size: 11px; font-family: inherit; }
+.cd-barre { fill: var(--paper-ink); opacity: .88; }
+.cd-fret-num { fill: #6b7280; font-size: 11px; font-weight: 700; font-family: inherit; }
+
+/* ---------- トラック割当 ---------- */
+.track-table {
+  width: 100%; border-collapse: collapse;
+  background: var(--panel); border-radius: 12px; overflow: hidden;
+}
+.track-table th, .track-table td {
+  padding: 11px 14px; text-align: left; font-size: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.track-table th { color: var(--text-dim); font-size: 12.5px; font-weight: 600; background: var(--bg-soft); }
+.track-table select {
+  font-family: inherit; font-size: 13.5px;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+}
+
+/* ---------- 書き出し・ガイド ---------- */
+.export-bar { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.global-export {
+  margin-top: 30px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 22px;
+}
+.section-title { font-size: 18px; margin-bottom: 10px; }
+.hint { color: var(--text-dim); font-size: 13.5px; }
+.hint-box {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 18px 20px;
+}
+.hint-box p { margin-bottom: 6px; }
+.hint-box strong { color: var(--text); }
+
+.guide-section, .notes-section {
+  margin-top: 40px; background: var(--bg-soft); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 24px;
+}
+.guide-steps { margin: 12px 0 14px 22px; display: grid; gap: 10px; font-size: 14.5px; }
+.guide-steps strong { color: var(--accent); }
+.notes-list { margin-left: 20px; display: grid; gap: 8px; font-size: 13.5px; color: var(--text-dim); }
+.notes-list strong { color: var(--text); }
+
+.site-footer {
+  text-align: center; color: var(--text-dim); font-size: 12.5px;
+  padding: 26px 20px 40px;
+}
+
+/* ---------- 印刷 ---------- */
+@media print {
+  body { background: #fff; color: #111; }
+  .site-header, .upload-section, .progress-section, .tabs,
+  .guide-section, .notes-section, .site-footer,
+  .playback-area, .export-bar, .global-export .hint, .chord-controls .btn,
+  .btn { display: none !important; }
+  .summary-bar, .chord-bar { border-color: #ccc; background: #fff; color: #111; }
+  .summary-item, .summary-item strong, .chord-chip-name { color: #111; }
+  .chord-chip-degree, .chord-bar-num { color: #666; }
+  .score-scroll { overflow: visible; box-shadow: none; }
+  .used-chord { box-shadow: none; border: 1px solid #ddd; }
+  body.print-all .panel { display: block !important; page-break-inside: avoid; }
+  .global-export { border: none; padding: 0; }
+  .global-export .section-title { display: none; }
+}

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; manifest-src 'self'; connect-src 'self'; font-src 'self'">
+<title>コード採譜スタジオ — 楽曲のコード分析・タブ譜・楽譜ツール</title>
+<meta name="description" content="楽曲ファイルからコード進行を解析、ステム分離MIDIからギターTAB譜・ベースTAB譜・鍵盤の五線譜(ドレミ表記)を自動生成。すべて端末内で処理、参考採譜をダウンロードして共有できます。">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0e1116">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="logo-block">
+    <div class="logo-mark" aria-hidden="true">♪</div>
+    <div>
+      <h1 class="site-title">コード採譜スタジオ</h1>
+      <p class="site-tagline">楽曲をアップロード → コード分析・TAB譜・五線譜。すべて端末内で完結。</p>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- アップロード -->
+  <section class="upload-section" aria-label="ファイル読み込み">
+    <div class="upload-grid">
+      <label class="upload-card" id="audioCard">
+        <input type="file" id="audioInput" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac" hidden>
+        <span class="upload-icon">🎵</span>
+        <span class="upload-title">音源ファイル</span>
+        <span class="upload-desc">mp3 / wav / m4a など<br>キー・BPM・コード進行を解析</span>
+        <span class="upload-badge badge-audio">コード解析 (参考精度)</span>
+        <span class="upload-cta">クリック or ドラッグ&ドロップ</span>
+      </label>
+      <label class="upload-card" id="midiCard">
+        <input type="file" id="midiInput" accept=".mid,.midi,audio/midi" multiple hidden>
+        <span class="upload-icon">🎹</span>
+        <span class="upload-title">ステム分離MIDI</span>
+        <span class="upload-desc">.mid 複数ファイルOK(楽器別ステム)<br>ギターTAB・ベースTAB・五線譜を生成</span>
+        <span class="upload-badge badge-midi">高精度採譜</span>
+        <span class="upload-cta">クリック or ドラッグ&ドロップ</span>
+      </label>
+    </div>
+    <div class="upload-footer">
+      <button class="btn btn-ghost" id="btnDemo">✨ デモ楽曲で試してみる</button>
+      <p class="privacy-note">🔒 ファイルは<strong>ブラウザ内(端末内)だけ</strong>で解析されます。サーバーへのアップロードは一切ありません。</p>
+    </div>
+  </section>
+
+  <!-- プログレス -->
+  <section id="progressSection" class="progress-section" hidden>
+    <p id="progressMsg">解析中…</p>
+    <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+  </section>
+
+  <!-- 結果 -->
+  <section id="resultsSection" class="results-section" hidden>
+    <div class="summary-bar" id="summaryBar"></div>
+    <div class="playback-area" id="playbackArea"></div>
+
+    <nav class="tabs" aria-label="表示切替">
+      <button class="tab-btn active" data-tab="chords">🎼 コード進行</button>
+      <button class="tab-btn" data-tab="guitar">🎸 ギター</button>
+      <button class="tab-btn" data-tab="bass">🎸 ベース</button>
+      <button class="tab-btn" data-tab="keys">🎹 鍵盤</button>
+      <button class="tab-btn" data-tab="tracks">⚙️ トラック割当</button>
+    </nav>
+
+    <div class="panel active" id="panel-chords">
+      <div class="chord-controls">
+        <span id="chordKeyLabel" class="chord-key-label"></span>
+        <div class="transpose-group">
+          <span class="ctrl-label">移調</span>
+          <button class="btn btn-small" id="btnTransposeDown">♭</button>
+          <span class="transpose-val" id="transposeVal">0</span>
+          <button class="btn btn-small" id="btnTransposeUp">♯</button>
+          <button class="btn btn-small" id="btnTransposeReset">リセット</button>
+        </div>
+        <button class="btn btn-small on" id="btnDegree">ディグリー表示</button>
+      </div>
+      <div id="usedChordsHolder"></div>
+      <div id="chordGridHolder"></div>
+    </div>
+
+    <div class="panel" id="panel-guitar"><div id="guitarHolder"></div></div>
+    <div class="panel" id="panel-bass"><div id="bassHolder"></div></div>
+    <div class="panel" id="panel-keys"><div id="keysHolder"></div></div>
+    <div class="panel" id="panel-tracks"><div id="tracksHolder"></div></div>
+
+    <div class="global-export">
+      <h2 class="section-title">参考採譜を渡す</h2>
+      <p class="hint">採譜結果をまとめてダウンロードして、バンドメンバーや依頼先に「参考採譜」として共有できます。</p>
+      <div class="export-bar">
+        <button class="btn btn-primary" id="btnExportAll">📦 参考採譜パックをダウンロード (.txt)</button>
+        <button class="btn" id="btnPrint">🖨 印刷 / PDF保存</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ガイド -->
+  <section class="guide-section">
+    <h2 class="section-title">🎯 高精度採譜ガイド</h2>
+    <ol class="guide-steps">
+      <li><strong>ステム分離</strong> — 楽曲をボーカル・ギター・ベース・ドラム・その他に分離します(Suno のステムダウンロード、Moises、Demucs など)。</li>
+      <li><strong>MIDI変換</strong> — 各ステムをMIDIに変換します(Basic Pitch、Melodyne、Klangio など)。楽器ごとに1ファイルずつが理想です。</li>
+      <li><strong>このツールに読み込み</strong> — 変換したMIDIをまとめて「ステム分離MIDI」へドラッグ&ドロップ。ファイル名に「bass」「guitar」「piano」などが入っていると自動で楽器を判別します。</li>
+      <li><strong>確認 & 共有</strong> — TAB譜・五線譜・コード進行を確認し、簡易シンセ再生で答え合わせ。参考採譜パックをダウンロードして共有できます。</li>
+    </ol>
+    <p class="hint">💡 音源ファイル直接のコード解析は「参考精度」です。正確なタブ譜・楽譜が必要なときは、ステム分離 → MIDI変換の手順をおすすめします。</p>
+  </section>
+
+  <!-- 注意 -->
+  <section class="notes-section">
+    <h2 class="section-title">ご利用にあたって</h2>
+    <ul class="notes-list">
+      <li>本ツールの出力は自動解析による<strong>参考採譜</strong>です。正確性は保証されません。最終判断はご自身の耳でお願いします。</li>
+      <li>ご自身に権利のある楽曲(自作曲・生成楽曲など)でご利用ください。他者の楽曲の採譜を配布する場合は、権利関係をご確認ください。</li>
+      <li>音源・MIDIデータは端末内でのみ処理され、外部へ送信されることはありません。</li>
+    </ul>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <p>コード採譜スタジオ — 完全無料・登録不要・端末内処理</p>
+</footer>
+
+<script src="theory.js"></script>
+<script src="midi.js"></script>
+<script src="audio.js"></script>
+<script src="render.js"></script>
+<script src="export.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
