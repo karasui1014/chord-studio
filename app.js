@@ -162,7 +162,7 @@
 
     try {
       if (st.stems.length && st.stemsKind === 'midi') {
-        await analyzeMidiFiles(st.stems);
+        await analyzeMidiFiles(st.stems, st.audio);
       } else if (st.stems.length) {
         await analyzeStemAudioFiles(st.stems, st.audio);
       } else {
@@ -249,7 +249,10 @@
   }
 
   /* ==================== MIDI解析 ==================== */
-  async function analyzeMidiFiles(files) {
+  // Basic Pitch等が書き出すMIDIは「秒」は正確でも小節・拍(テンポマップ)が
+  // 当てにならないことが多い。楽曲ファイルが一緒にあれば、実音源から
+  // ビートを検出してMIDIの音符をそのビート格子に貼り直す(=タイミングが合う)。
+  async function analyzeMidiFiles(files, audioFile) {
     if (state.song && state.song.mixWavUrl) URL.revokeObjectURL(state.song.mixWavUrl);
     showProgress('MIDIを解析中…');
     const parsed = [];
@@ -257,12 +260,39 @@
       const buf = await f.arrayBuffer();
       parsed.push(MidiParser.parse(buf, f.name));
     }
-    state.title = state.staged.audio
-      ? state.staged.audio.name.replace(/\.[^.]+$/, '')
+    state.title = audioFile
+      ? audioFile.name.replace(/\.[^.]+$/, '')
       : (files.length === 1
           ? files[0].name.replace(/\.[^.]+$/, '')
           : files[0].name.replace(/\.[^.]+$/, '') + ' 他' + (files.length - 1) + 'ファイル');
     const song = MidiParser.buildSong(parsed);
+
+    if (audioFile) {
+      $('#progressMsg').textContent = '実音源からビートとコードを解析中… — 端末内で処理中';
+      const res = await AudioAnalyzer.analyze(await audioFile.arrayBuffer(), p => setProgress(0.3 + 0.6 * p));
+      const grid = Transcriber.makeBeatGrid(res.beatTimes, res.bpm);
+      const midiTickToSec = song.tickToSec; // MIDI自身のテンポマップ(秒は正確)
+      for (const tr of song.tracks) {
+        for (const nt of tr.notes) {
+          const sec = midiTickToSec(nt.tick);
+          const endSec = midiTickToSec(nt.tick + nt.durTick);
+          const beat = Math.round(grid.secToBeat(sec) * 2) / 2; // 8分グリッドに整える
+          const durBeat = Math.max(0.5, Math.round((grid.secToBeat(endSec) - beat) * 2) / 2);
+          nt.beat = beat;
+          nt.durBeat = durBeat;
+          nt.tick = Math.round(beat * song.ppq);
+          nt.durTick = Math.max(1, Math.round(durBeat * song.ppq));
+        }
+      }
+      let maxBeat = 4;
+      for (const tr of song.tracks) for (const nt of tr.notes) maxBeat = Math.max(maxBeat, nt.beat + nt.durBeat);
+      song.bpm = res.bpm;
+      song.totalBars = Math.max(res.totalBars, Math.ceil(maxBeat / song.beatsPerBar));
+      song.tickToSec = t => grid.beatToSec(t / song.ppq);
+      song.chordResult = res; // コード進行も実音源から(Basic PitchのノイズをかわすBest判断)
+      song.synced = true;
+    }
+
     state.song = song;
     reanalyzeMidi();
     hideProgress();
@@ -272,8 +302,8 @@
   function reanalyzeMidi() {
     const song = state.song;
     let key, chords;
-    if (song.kind === 'stems' && song.chordResult) {
-      // ステム採譜: 全ステム合算ミックスのクロマ解析結果をそのまま使う
+    if (song.chordResult) {
+      // ステム採譜・実音源同期MIDI: ミックスのクロマ解析結果をそのまま使う
       key = song.chordResult.key;
       chords = song.chordResult.chords;
     } else {
@@ -429,7 +459,9 @@
     const srcLabel = state.activeSource === 'midi'
       ? (state.song && state.song.kind === 'stems'
           ? '<span class="badge badge-audio">ステム自動採譜</span>'
-          : '<span class="badge badge-midi">MIDI採譜(高精度)</span>')
+          : (state.song && state.song.synced
+              ? '<span class="badge badge-midi">MIDI採譜+実音源同期</span>'
+              : '<span class="badge badge-midi">MIDI採譜</span>'))
       : '<span class="badge badge-audio">音源解析(参考精度)</span>';
     $('#summaryBar').innerHTML = `
       ${srcLabel}
@@ -441,7 +473,7 @@
   }
 
   /* ==================== 再生 ==================== */
-  // 優先順: ①読み込んだ楽曲ファイル ②ステム合成ミックス ③簡易シンセ
+  // 再生は実音源のみ: ①読み込んだ楽曲ファイル ②ステム合成ミックス
   // 実音源で再生すればコード・歌詞ハイライトが実時間に正確に同期する
   function renderPlayback() {
     const holder = $('#playbackArea');
@@ -460,35 +492,31 @@
         holder.appendChild(note);
       }
       audio.addEventListener('play', () => {
-        stopMidiPlayback();
         startHighlightLoop(() => audio.currentTime);
       });
       audio.addEventListener('pause', stopHighlightLoop);
       audio.addEventListener('ended', stopHighlightLoop);
+    } else {
+      const hint = document.createElement('p');
+      hint.className = 'hint';
+      hint.textContent = '▶ 再生して同期表示するには「①楽曲ファイル」もセットして解析してください。';
+      holder.appendChild(hint);
     }
-    if (state.activeSource === 'midi') {
-      const btn = document.createElement('button');
-      btn.className = 'btn btn-play';
-      btn.id = 'btnMidiPlay';
-      btn.textContent = '▶ 採譜結果を再生 (簡易シンセ)';
-      btn.addEventListener('click', toggleMidiPlayback);
-      holder.appendChild(btn);
-      if (state.song && state.song.kind === 'stems') {
-        const half = document.createElement('button');
-        half.className = 'btn btn-small';
-        half.textContent = 'テンポ÷2';
-        half.addEventListener('click', () => scaleTempo(0.5));
-        const dbl = document.createElement('button');
-        dbl.className = 'btn btn-small';
-        dbl.textContent = 'テンポ×2';
-        dbl.addEventListener('click', () => scaleTempo(2));
-        const note = document.createElement('span');
-        note.className = 'hint';
-        note.textContent = ' BPMや小節の数え方が倍/半分にズレているときに押してください';
-        holder.appendChild(dbl);
-        holder.appendChild(half);
-        holder.appendChild(note);
-      }
+    if (state.song && (state.song.kind === 'stems' || state.song.synced)) {
+      const half = document.createElement('button');
+      half.className = 'btn btn-small';
+      half.textContent = 'テンポ÷2';
+      half.addEventListener('click', () => scaleTempo(0.5));
+      const dbl = document.createElement('button');
+      dbl.className = 'btn btn-small';
+      dbl.textContent = 'テンポ×2';
+      dbl.addEventListener('click', () => scaleTempo(2));
+      const note = document.createElement('span');
+      note.className = 'hint';
+      note.textContent = ' BPMや小節の数え方が倍/半分にズレているときに押してください';
+      holder.appendChild(dbl);
+      holder.appendChild(half);
+      holder.appendChild(note);
     }
     // 再生中に「今のコード + 歌詞」をどのタブでも見えるように
     const np = document.createElement('div');
@@ -563,61 +591,8 @@
     renderResults();
   }
 
-  function toggleMidiPlayback() {
-    if (state.synth) { stopMidiPlayback(); return; }
-    const player = $('#audioPlayer');
-    if (player) player.pause();
-    const song = state.song;
-    const AC = window.AudioContext || window.webkitAudioContext;
-    const ctx = new AC();
-    if (ctx.state === 'suspended') ctx.resume();
-    const master = ctx.createGain();
-    master.gain.value = 0.25;
-    const comp = ctx.createDynamicsCompressor();
-    master.connect(comp).connect(ctx.destination);
-    const t0 = ctx.currentTime + 0.1;
-    let count = 0;
-    const WAVE = { guitar: 'triangle', bass: 'sine', keys: 'triangle', melody: 'square' };
-    for (const tr of song.tracks) {
-      if (tr.role === 'drums' || tr.role === 'skip') continue;
-      for (const n of tr.notes) {
-        if (count++ > 4000) break;
-        const start = t0 + song.tickToSec(n.tick);
-        const dur = Math.max(0.08, song.tickToSec(n.tick + n.durTick) - song.tickToSec(n.tick));
-        const osc = ctx.createOscillator();
-        osc.type = WAVE[tr.role] || 'triangle';
-        osc.frequency.value = 440 * Math.pow(2, (n.pitch - 69) / 12);
-        const g = ctx.createGain();
-        const vol = (n.vel / 127) * (tr.role === 'melody' ? 0.5 : 0.32);
-        g.gain.setValueAtTime(0, start);
-        g.gain.linearRampToValueAtTime(vol, start + 0.015);
-        g.gain.exponentialRampToValueAtTime(0.001, start + dur);
-        osc.connect(g).connect(master);
-        osc.start(start);
-        osc.stop(start + dur + 0.05);
-      }
-    }
-    state.synth = { ctx, t0 };
-    $('#btnMidiPlay').textContent = '■ 停止';
-    $('#btnMidiPlay').classList.add('playing');
-    const totalSec = song.tickToSec(song.totalBars * song.beatsPerBar * song.ppq);
-    startHighlightLoop(() => ctx.currentTime - t0);
-    state.synthTimer = setTimeout(stopMidiPlayback, (totalSec + 1) * 1000);
-  }
-
-  function stopMidiPlayback() {
-    if (state.synth) {
-      state.synth.ctx.close();
-      state.synth = null;
-      clearTimeout(state.synthTimer);
-    }
-    stopHighlightLoop();
-    const btn = $('#btnMidiPlay');
-    if (btn) { btn.textContent = '▶ 採譜結果を再生 (簡易シンセ)'; btn.classList.remove('playing'); }
-  }
-
   function stopAllPlayback() {
-    stopMidiPlayback();
+    stopHighlightLoop();
     const a = $('#audioPlayer');
     if (a) a.pause();
   }

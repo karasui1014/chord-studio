@@ -323,55 +323,55 @@ const AudioAnalyzer = (() => {
     const bpm = Math.round(best.bpm * 10) / 10;
     const beatDur = 60 / bpm;
 
-    // 前奏がアンビエント/ルバートだと、位相フィッティングをそこに合わせてしまい
-    // 曲全体がズレる。「ビートが安定して刻まれ始める場所」を先に見つけ、
-    // そこを基準に位相を決める(前奏部分はそこからの逆算グリッドになる)。
-    const steadyStart = findSteadyStart(env, frameDur, n);
-    let bestPhase = 0, bestPS = -1;
-    const searchStart = Math.min(steadyStart, Math.max(0, duration - 8));
-    const searchEnd = Math.min(duration, searchStart + 60);
-    for (let ph = 0; ph < beatDur; ph += frameDur) {
-      let s = 0;
-      for (let t = searchStart + ph; t < searchEnd; t += beatDur) {
-        const f = Math.round(t / frameDur);
-        if (f < n) s += env[f];
-      }
-      if (s > bestPS) { bestPS = s; bestPhase = ph; }
-    }
-    let absPhase = (searchStart + bestPhase) % beatDur;
-    if (absPhase < 0) absPhase += beatDur;
+    /* ---------- 動的計画法ビートトラッキング ----------
+     * 一定テンポの格子を全曲に当てはめるのではなく、実際に鳴っている
+     * オンセットを1拍ずつ追跡する(Ellis方式)。テンポの揺れや前奏の
+     * タメにも追従するので、表示と演奏のタイミングが合う。 */
+    let maxE = 1e-9;
+    for (let i = 0; i < n; i++) maxE = Math.max(maxE, env[i]);
+    const nrm = new Float64Array(n);
+    for (let i = 0; i < n; i++) nrm[i] = env[i] / maxE;
 
-    const beatTimes = [];
-    for (let t = absPhase; t <= duration; t += beatDur) beatTimes.push(t);
-    if (beatTimes.length < 2) beatTimes.push(duration);
+    const P = beatDur / frameDur; // 期待周期(フレーム)
+    const score = new Float64Array(n);
+    const from = new Int32Array(n).fill(-1);
+    const TIGHT = 1.6; // 周期からの逸脱ペナルティの強さ
+    for (let i = 0; i < n; i++) {
+      score[i] = nrm[i];
+      const j0 = Math.max(0, Math.floor(i - 2.2 * P));
+      const j1 = Math.floor(i - P * 0.45);
+      for (let j = j0; j <= j1; j++) {
+        if (j < 0) continue;
+        const dev = Math.log((i - j) / P);
+        const s = score[j] - TIGHT * dev * dev + nrm[i];
+        if (s > score[i]) { score[i] = s; from[i] = j; }
+      }
+    }
+    let end = n - 1, bestS = -Infinity;
+    for (let i = Math.max(0, n - Math.ceil(2.5 * P)); i < n; i++) {
+      if (score[i] > bestS) { bestS = score[i]; end = i; }
+    }
+    const beatFrames = [];
+    for (let i = end; i >= 0; i = from[i]) {
+      beatFrames.push(i);
+      if (from[i] < 0) break;
+    }
+    beatFrames.reverse();
+    let beatTimes = beatFrames.map(fi => fi * frameDur);
+    if (beatTimes.length < 4) {
+      // フォールバック: 一定格子
+      beatTimes = [];
+      for (let t = 0; t <= duration; t += beatDur) beatTimes.push(t);
+    }
+    // 前奏・アウトロは局所周期で外挿して全曲をカバー
+    const headP = Math.min(Math.max(beatTimes[1] - beatTimes[0], beatDur * 0.5) || beatDur, beatDur * 1.5);
+    while (beatTimes[0] > headP * 0.55) beatTimes.unshift(Math.max(0, beatTimes[0] - headP));
+    const last2 = () => beatTimes.length - 2;
+    const tailP = Math.min(Math.max(beatTimes[last2() + 1] - beatTimes[last2()], beatDur * 0.5) || beatDur, beatDur * 1.5);
+    while (beatTimes[beatTimes.length - 1] < duration - tailP * 0.5) {
+      beatTimes.push(beatTimes[beatTimes.length - 1] + tailP);
+    }
     return { bpm, beatTimes };
-  }
-
-  // オンセット強度が「全体の中央値の1.6倍」を2秒以上持続する最初の時刻を
-  // 「ビートが安定して始まる場所」とみなす(見つからなければ曲の先頭)
-  function findSteadyStart(env, frameDur, n) {
-    const winFrames = Math.max(1, Math.round(1 / frameDur));
-    const sustainFrames = Math.max(1, Math.round(2 / frameDur));
-    const roll = new Float32Array(n);
-    let acc = 0;
-    for (let i = 0; i < n; i++) {
-      acc += env[i];
-      if (i >= winFrames) acc -= env[i - winFrames];
-      roll[i] = acc / Math.min(i + 1, winFrames);
-    }
-    const sorted = [...roll].sort((a, b) => a - b);
-    const median = sorted[Math.floor(sorted.length / 2)] || 0;
-    const thresh = median * 1.6;
-    let run = 0;
-    for (let i = 0; i < n; i++) {
-      if (roll[i] > thresh) {
-        run++;
-        if (run >= sustainFrames) return Math.max(0, (i - sustainFrames + 1) * frameDur);
-      } else {
-        run = 0;
-      }
-    }
-    return 0;
   }
 
   /* ---------- Viterbi コード平滑化 ---------- */

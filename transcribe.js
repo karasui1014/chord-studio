@@ -94,7 +94,8 @@ const Transcriber = (() => {
     }
     const sorted = [...rmsArr].sort((a, b) => a - b);
     const peakRms = sorted[Math.floor(sorted.length * 0.97)] || 0;
-    const gate = Math.max(1e-4, peakRms * 0.08);
+    // ゲートは控えめに: 静かな前奏のフレーズも拾えるように
+    const gate = Math.max(1e-4, peakRms * 0.035);
 
     const pitches = new Float32Array(nFrames).fill(-1);
     const energy = new Float32Array(nFrames);
@@ -248,7 +249,7 @@ const Transcriber = (() => {
           }
           if (v === 0) {
             firstSal = bs;
-            if (bs < frameEnergy * 0.012) break; // 無音・ノイズ
+            if (bs < frameEnergy * 0.007) break; // 無音・ノイズ(静かな前奏も拾えるよう控えめに)
           } else if (bs < firstSal * 0.45) break;
           // オクターブ誤検出の抑制: 1オクターブ下が既に居て弱ければ除外
           if (active.has(bp - 12) && bs < active.get(bp - 12) * 0.55) {
@@ -445,5 +446,5 @@ const Transcriber = (() => {
     return { name: stem.name, fileName: stem.file.name, notes, role: stem.role, channels: [0] };
   }
 
-  return { transcribeFiles, roleFromName };
+  return { transcribeFiles, roleFromName, makeBeatGrid };
 })();
