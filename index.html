@@ -32,25 +32,32 @@
       <label class="upload-card" id="audioCard">
         <input type="file" id="audioInput" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac" hidden>
         <span class="upload-icon">🎵</span>
-        <span class="upload-title">音源ファイル</span>
-        <span class="upload-desc">mp3 / wav / m4a など<br>キー・BPM・コード進行を解析</span>
-        <span class="upload-badge badge-audio">コード解析 (参考精度)</span>
+        <span class="upload-title">① 楽曲ファイル</span>
+        <span class="upload-desc">mp3 / wav / m4a など(フルミックス)<br>再生同期とコード解析の精度が上がります</span>
+        <span class="upload-badge badge-audio">再生 + コード解析</span>
         <span class="upload-cta">クリック or ドラッグ&ドロップ</span>
+        <span class="upload-status" id="audioStatus"></span>
       </label>
       <label class="upload-card" id="midiCard">
         <input type="file" id="midiInput" accept=".mid,.midi,audio/midi,audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac" multiple hidden>
         <span class="upload-icon">🎹</span>
-        <span class="upload-title">ステム分離ファイル</span>
+        <span class="upload-title">② ステム分離ファイル</span>
         <span class="upload-desc">楽器別の .mid / mp3 / wav をまとめて選択OK<br>ギターTAB・ベースTAB・五線譜を生成</span>
         <span class="upload-badge badge-midi">MIDI=高精度 / 音源=自動採譜</span>
         <span class="upload-cta">クリック or ドラッグ&ドロップ</span>
+        <span class="upload-status" id="midiStatus"></span>
       </label>
     </div>
-    <div class="upload-footer">
+    <div class="lyrics-stage">
+      <label class="lyrics-stage-label" for="lyricsStage">③ 歌詞(任意) — 入れておくとコード付き歌詞シートも同時にできます</label>
+      <textarea id="lyricsStage" class="lyrics-textarea lyrics-stage-ta" placeholder="歌詞をここに貼り付け…(空行=セクション区切り)"></textarea>
+    </div>
+    <div class="analyze-bar">
+      <button class="btn btn-primary btn-analyze" id="btnAnalyze" disabled>🔍 解析開始</button>
       <button class="btn btn-ghost" id="btnDemo">✨ デモ楽曲で試してみる</button>
       <p class="privacy-note">🔒 ファイルは<strong>ブラウザ内(端末内)だけ</strong>で解析されます。サーバーへのアップロードは一切ありません。</p>
     </div>
-    <p class="hint order-hint">💡 おすすめの順番: ① ステム分離ファイル(採譜) → ② 音源ファイル(元の楽曲を再生用にセット) → ③ 歌詞タブで歌詞を貼り付け — 3つ揃うと、実音源を聴きながらコード・歌詞・譜面が同期します。</p>
+    <p class="hint order-hint">💡 使い方: ①〜③をセットして「解析開始」。全部まとめて1つの結果になります(①だけ→コード解析のみ / ②だけ→採譜のみ でもOK)。</p>
     <div id="uploadNotice" class="upload-notice" hidden></div>
   </section>
 

@@ -125,7 +125,7 @@ const Exporter = (() => {
 
       // 各弦の行
       for (let li = 0; li < nStrings; li++) {
-        const stringIdx = nStrings - 1 - li; // 表示上段 = 高音弦
+        const stringIdx = opts.flip ? li : nStrings - 1 - li; // 標準は上段=高音弦
         let line = stringNames[li].padStart(nameW) + '|';
         for (let bi = 0; bi < nBars; bi++) {
           let seg = '';
@@ -135,7 +135,11 @@ const Exporter = (() => {
             const notes = grid.get(div) || [];
             const note = notes.find(n => n.string === stringIdx);
             if (note) {
-              const s = String(note.fret);
+              let s = String(note.fret);
+              if (note.artic && opts.tuning && note.toPitch !== null && note.toPitch !== undefined) {
+                const toFret = note.toPitch - opts.tuning[note.string];
+                if (toFret >= 0 && toFret <= 22) s += (note.artic === 'up' ? '/' : '\\') + toFret;
+              }
               seg += s + '-'.repeat(Math.max(0, CH - s.length));
               d += Math.max(1, Math.ceil(s.length / CH));
             } else {
@@ -149,7 +153,7 @@ const Exporter = (() => {
       }
       lines.push('');
     }
-    lines.push('(数字=フレット / 縦の並び=同時に弾く音 / 2文字=16分音符1つ分)');
+    lines.push('(数字=フレット / 縦の並び=同時に弾く音 / 3/5=3から5へのグリス・チョーキング気味の移動)');
     return lines.join('\n');
   }
 

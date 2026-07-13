@@ -23,6 +23,10 @@
     rafId: null,
     currentGetTime: null,  // 再生中: 現在時刻(秒)を返す関数。停止中はnull
     lyrics: { raw: '', lines: [], editing: true, startBar: 1, barsPerLine: 'auto' },
+    // 解析前のステージング(全部セットしてから「解析開始」で一括解析)
+    staged: { audio: null, stems: [], stemsKind: null },
+    tabFlip: false,        // TAB譜の上下反転(false = 1弦が上の標準)
+    beatSecs: null,        // 拍→秒の対応表(再生カーソル用)
   };
 
   const ROLE_LABELS = {
@@ -47,6 +51,7 @@
       renderShiftViews();
     });
     $('#btnAutoCapo').addEventListener('click', autoCapo);
+    $('#lyricsStage').addEventListener('input', updateStageUI);
     $('#btnDegree').addEventListener('click', () => {
       state.showDegree = !state.showDegree;
       $('#btnDegree').classList.toggle('on', state.showDegree);
@@ -60,32 +65,39 @@
     }
   });
 
-  /* ==================== アップローダ ==================== */
+  /* ==================== アップローダ (ステージング方式) ====================
+   * ファイルを選んだ時点では解析せず、「解析開始」ボタンで一括解析する。
+   * 楽曲ファイル+ステム+歌詞を全部使って一つの結果を作るため。 */
   function setupUploaders() {
     const audioInput = $('#audioInput');
     const midiInput = $('#midiInput');
     audioInput.addEventListener('change', () => {
       const f = audioInput.files[0];
       if (!f) return;
-      if (/\.(mid|midi)$/i.test(f.name)) {
-        showUploadNotice('それはMIDIファイルのようです。右の「ステム分離MIDI」へどうぞ。');
-        return;
-      }
-      handleAudioFile(f);
+      stageAudio(f);
     });
     midiInput.addEventListener('change', () => {
-      routeStemFiles([...midiInput.files]);
+      stageStemFiles([...midiInput.files]);
     });
     setupDrop($('#audioCard'), files => {
       const f = files.find(f => /\.(mp3|wav|m4a|aac|ogg|flac|webm)$/i.test(f.name) || f.type.startsWith('audio/'));
-      if (f) handleAudioFile(f);
+      if (f) stageAudio(f);
       else showUploadNotice('音源ファイル(mp3 / wav / m4a など)をお使いください。');
     });
-    setupDrop($('#midiCard'), files => routeStemFiles(files));
+    setupDrop($('#midiCard'), files => stageStemFiles(files));
+    $('#btnAnalyze').addEventListener('click', runAnalysis);
   }
 
-  // ステム欄: MIDIはパーサへ、音源(mp3/wav等)は自動採譜エンジンへ振り分け
-  function routeStemFiles(files) {
+  function stageAudio(f) {
+    if (/\.(mid|midi)$/i.test(f.name)) {
+      showUploadNotice('それはMIDIファイルのようです。右の「ステム分離ファイル」へどうぞ。');
+      return;
+    }
+    state.staged.audio = f;
+    updateStageUI();
+  }
+
+  function stageStemFiles(files) {
     if (files.length === 0) return;
     const mids = files.filter(f => /\.(midi?|MIDI?)$/i.test(f.name));
     const audios = files.filter(f =>
@@ -95,34 +107,107 @@
       showUploadNotice('MIDIと音源ファイルが混ざっています。どちらか一方だけを選んでください。');
       return;
     }
-    if (mids.length) { handleMidiFiles(mids); return; }
-    if (audios.length) { handleStemAudioFiles(audios); return; }
-    showUploadNotice('対応形式は .mid / mp3 / wav / m4a などです。');
+    if (mids.length) { state.staged.stems = mids; state.staged.stemsKind = 'midi'; }
+    else if (audios.length) { state.staged.stems = audios; state.staged.stemsKind = 'audio'; }
+    else { showUploadNotice('対応形式は .mid / mp3 / wav / m4a などです。'); return; }
+    updateStageUI();
+  }
+
+  function updateStageUI() {
+    const st = state.staged;
+    const audioStatus = $('#audioStatus');
+    const midiStatus = $('#midiStatus');
+    $('#audioCard').classList.toggle('staged', !!st.audio);
+    $('#midiCard').classList.toggle('staged', st.stems.length > 0);
+    audioStatus.textContent = st.audio ? `✔ ${st.audio.name}` : '';
+    midiStatus.textContent = st.stems.length
+      ? `✔ ${st.stems.length}ファイル (${st.stemsKind === 'midi' ? 'MIDI' : '音源'})`
+      : '';
+    const btn = $('#btnAnalyze');
+    btn.disabled = !(st.audio || st.stems.length);
+    if (!btn.disabled) {
+      const parts = [];
+      if (st.stems.length) parts.push(st.stemsKind === 'midi' ? 'MIDI採譜' : 'ステム自動採譜');
+      else if (st.audio) parts.push('コード解析');
+      if (st.audio && st.stems.length) parts.push('実音源同期');
+      if ($('#lyricsStage').value.trim()) parts.push('歌詞シート');
+      btn.textContent = `🔍 解析開始 (${parts.join(' + ')})`;
+    } else {
+      btn.textContent = '🔍 解析開始';
+    }
+  }
+
+  /* ==================== 一括解析 ==================== */
+  async function runAnalysis() {
+    const st = state.staged;
+    if (!st.audio && !st.stems.length) return;
+    stopAllPlayback();
+    resetLyrics();
+
+    // 歌詞を先に取り込む(解析後すぐシート生成される)
+    const lyricsText = $('#lyricsStage').value;
+    if (lyricsText.trim()) {
+      state.lyrics.raw = lyricsText;
+      state.lyrics.lines = parseLyricsText(lyricsText);
+      state.lyrics.editing = false;
+    }
+
+    // 再生用の実音源をセット
+    if (st.audio) {
+      if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
+      state.audioUrl = URL.createObjectURL(st.audio);
+    }
+
+    try {
+      if (st.stems.length && st.stemsKind === 'midi') {
+        await analyzeMidiFiles(st.stems);
+      } else if (st.stems.length) {
+        await analyzeStemAudioFiles(st.stems, st.audio);
+      } else {
+        await analyzeAudioOnly(st.audio);
+      }
+    } catch (err) {
+      hideProgress();
+      alert('解析に失敗しました: ' + err.message);
+      console.error(err);
+    }
+  }
+
+  function parseLyricsText(text) {
+    const lines = [];
+    let prevBlank = true;
+    for (const s of text.split('\n').map(s => s.trim())) {
+      if (s.length === 0) {
+        if (!prevBlank) lines.push({ blank: true });
+        prevBlank = true;
+      } else {
+        lines.push({ text: s });
+        prevBlank = false;
+      }
+    }
+    while (lines.length && lines[lines.length - 1].blank) lines.pop();
+    return lines;
   }
 
   /* ==================== ステム音源の自動採譜 ==================== */
-  async function handleStemAudioFiles(files) {
-    stopAllPlayback();
-    resetLyrics();
+  async function analyzeStemAudioFiles(files, fullMixFile) {
     if (state.song && state.song.mixWavUrl) URL.revokeObjectURL(state.song.mixWavUrl);
-    state.title = files.length === 1
-      ? files[0].name.replace(/\.[^.]+$/, '')
-      : `ステム採譜 (${files.length}ファイル)`;
+    state.title = fullMixFile
+      ? fullMixFile.name.replace(/\.[^.]+$/, '')
+      : (files.length === 1
+          ? files[0].name.replace(/\.[^.]+$/, '')
+          : `ステム採譜 (${files.length}ファイル)`);
     showProgress('ステム音源を読み込み中… (端末内で処理・アップロードはしていません)');
-    try {
-      const song = await Transcriber.transcribeFiles(files, (msg, p) => {
-        $('#progressMsg').textContent = msg + ' — 端末内で処理中';
-        setProgress(Math.min(0.99, p));
-      });
-      state.song = song;
-      reanalyzeMidi();
-      hideProgress();
-      renderResults();
-    } catch (err) {
-      hideProgress();
-      alert('ステム音源の採譜に失敗しました: ' + err.message);
-      console.error(err);
-    }
+    const opts = {};
+    if (fullMixFile) opts.fullMixBuffer = await fullMixFile.arrayBuffer();
+    const song = await Transcriber.transcribeFiles(files, (msg, p) => {
+      $('#progressMsg').textContent = msg + ' — 端末内で処理中';
+      setProgress(Math.min(0.99, p));
+    }, opts);
+    state.song = song;
+    reanalyzeMidi();
+    hideProgress();
+    renderResults();
   }
 
   function showUploadNotice(msg) {
@@ -145,70 +230,41 @@
     });
   }
 
-  /* ==================== 音源解析 ==================== */
-  async function handleAudioFile(file) {
-    stopAllPlayback();
-    if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
-    state.audioUrl = URL.createObjectURL(file);
-
-    // すでにステム/MIDIの採譜結果がある場合は、再生用音源として差し込むだけ
-    // (採譜結果・歌詞はそのまま。表示と実音源が同期して聴けるようになる)
-    if (state.song && state.activeSource === 'midi') {
-      renderPlayback();
-      showUploadNotice('楽曲ファイルを再生用にセットしました。採譜結果はそのまま、実音源と同期して再生できます。');
-      return;
-    }
-
-    resetLyrics();
+  /* ==================== 音源のみのコード解析 ==================== */
+  async function analyzeAudioOnly(file) {
     state.title = file.name.replace(/\.[^.]+$/, '');
     showProgress('音源を解析中… (端末内で処理・アップロードはしていません)');
-    try {
-      const buf = await file.arrayBuffer();
-      const result = await AudioAnalyzer.analyze(buf, p => setProgress(p));
-      state.audioResult = result;
-      state.activeSource = 'audio';
-      state.chords = result.chords;
-      state.key = result.key;
-      state.transpose = 0;
-      state.capo = 0;
-      hideProgress();
-      renderResults();
-    } catch (err) {
-      hideProgress();
-      alert('音源の解析に失敗しました: ' + err.message);
-      console.error(err);
-    }
+    const buf = await file.arrayBuffer();
+    const result = await AudioAnalyzer.analyze(buf, p => setProgress(p));
+    state.audioResult = result;
+    state.activeSource = 'audio';
+    state.chords = result.chords;
+    state.key = result.key;
+    state.transpose = 0;
+    state.capo = 0;
+    hideProgress();
+    renderResults();
   }
 
   /* ==================== MIDI解析 ==================== */
-  async function handleMidiFiles(files) {
-    stopAllPlayback();
-    resetLyrics();
+  async function analyzeMidiFiles(files) {
     if (state.song && state.song.mixWavUrl) URL.revokeObjectURL(state.song.mixWavUrl);
     showProgress('MIDIを解析中…');
-    try {
-      const parsed = [];
-      for (const f of files) {
-        const buf = await f.arrayBuffer();
-        parsed.push(MidiParser.parse(buf, f.name));
-      }
-      state.title = files.length === 1
-        ? files[0].name.replace(/\.[^.]+$/, '')
-        : files[0].name.replace(/\.[^.]+$/, '') + ' 他' + (files.length - 1) + 'ファイル';
-      buildAndAnalyzeMidi(parsed);
-      hideProgress();
-      renderResults();
-    } catch (err) {
-      hideProgress();
-      alert('MIDIの解析に失敗しました: ' + err.message);
-      console.error(err);
+    const parsed = [];
+    for (const f of files) {
+      const buf = await f.arrayBuffer();
+      parsed.push(MidiParser.parse(buf, f.name));
     }
-  }
-
-  function buildAndAnalyzeMidi(parsedFiles) {
-    const song = MidiParser.buildSong(parsedFiles);
+    state.title = state.staged.audio
+      ? state.staged.audio.name.replace(/\.[^.]+$/, '')
+      : (files.length === 1
+          ? files[0].name.replace(/\.[^.]+$/, '')
+          : files[0].name.replace(/\.[^.]+$/, '') + ' 他' + (files.length - 1) + 'ファイル');
+    const song = MidiParser.buildSong(parsed);
     state.song = song;
     reanalyzeMidi();
+    hideProgress();
+    renderResults();
   }
 
   function reanalyzeMidi() {
@@ -306,9 +362,40 @@
     state.lyrics = { raw: '', lines: [], editing: true, startBar: 1, barsPerLine: 'auto' };
   }
 
+  /* ==================== 拍→秒テーブル (再生カーソル用) ==================== */
+  function buildBeatSecs() {
+    const m = currentMeta();
+    const total = Math.ceil(m.totalBars * m.beatsPerBar) + 2;
+    const arr = new Float64Array(total);
+    if (state.activeSource === 'midi' && state.song) {
+      for (let i = 0; i < total; i++) arr[i] = state.song.tickToSec(i * state.song.ppq);
+    } else if (state.audioResult && state.audioResult.beatTimes) {
+      const bt = state.audioResult.beatTimes;
+      const bd = 60 / (state.audioResult.bpm || 120);
+      for (let i = 0; i < total; i++) {
+        arr[i] = i < bt.length ? bt[i] : bt[bt.length - 1] + (i - bt.length + 1) * bd;
+      }
+    }
+    state.beatSecs = arr;
+  }
+
+  function secToBeat(t) {
+    const a = state.beatSecs;
+    if (!a || a.length < 2) return 0;
+    if (t <= a[0]) return 0;
+    if (t >= a[a.length - 1]) return a.length - 1;
+    let lo = 0, hi = a.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (a[mid] <= t) lo = mid; else hi = mid;
+    }
+    return lo + (t - a[lo]) / ((a[lo + 1] - a[lo]) || 1e-9);
+  }
+
   /* ==================== 結果描画 ==================== */
   function renderResults() {
     $('#resultsSection').hidden = false;
+    buildBeatSecs();
     renderSummary();
     renderPlayback();
     renderChordPanel();
@@ -401,6 +488,11 @@
         holder.appendChild(note);
       }
     }
+    // 再生中に「今のコード + 歌詞」をどのタブでも見えるように
+    const np = document.createElement('div');
+    np.id = 'nowPlaying';
+    np.hidden = true;
+    holder.appendChild(np);
   }
 
   // ステム採譜のテンポ倍/半分補正(ビート格子ごと掛け直す)
@@ -501,13 +593,52 @@
         const e = parseFloat(el.dataset.endSec);
         el.classList.toggle('now', !isNaN(s) && !isNaN(e) && t >= s && t < e);
       }
+      updatePlayCursors(t);
+      updateNowPlaying(t);
     }, 100);
+    const np = $('#nowPlaying');
+    if (np) np.hidden = false;
   }
   function stopHighlightLoop() {
     if (state.hlTimer) clearInterval(state.hlTimer);
     state.hlTimer = null;
     state.currentGetTime = null;
     $$('.chord-chip.now, .ly-line.now').forEach(c => c.classList.remove('now'));
+    $$('.play-cursor').forEach(c => { c.setAttribute('x1', -10); c.setAttribute('x2', -10); });
+    const np = $('#nowPlaying');
+    if (np) np.hidden = true;
+  }
+
+  // TAB譜・五線譜の上を動く再生カーソル
+  function updatePlayCursors(t) {
+    const beat = secToBeat(t);
+    $$('.panel.active .score-svg').forEach(svg => {
+      if (!svg.__beatPos || !svg.__cursor) return;
+      const p = svg.__beatPos(beat);
+      svg.__cursor.setAttribute('x1', p.x);
+      svg.__cursor.setAttribute('x2', p.x);
+      svg.__cursor.setAttribute('y1', p.y1);
+      svg.__cursor.setAttribute('y2', p.y2);
+    });
+  }
+
+  // どのタブにいても「今のコード + 歌詞の行」を表示
+  function updateNowPlaying(t) {
+    const np = $('#nowPlaying');
+    if (!np) return;
+    const chords = state._dispChords || state.chords;
+    const c = chords.find(c => t >= c.startSec && t < c.endSec);
+    const line = (state._lyricsLayout || []).find(l => !l.blank && t >= l.startSec && t < l.endSec);
+    const chordTxt = c ? c.label : '—';
+    np.innerHTML = '';
+    const chordSpan = document.createElement('span');
+    chordSpan.className = 'np-chord';
+    chordSpan.textContent = chordTxt;
+    np.appendChild(chordSpan);
+    const lyricSpan = document.createElement('span');
+    lyricSpan.className = 'np-lyric';
+    lyricSpan.textContent = line ? line.text : '';
+    np.appendChild(lyricSpan);
   }
 
   /* ==================== コード進行パネル ==================== */
@@ -592,6 +723,7 @@
     holder.appendChild(Renderer.chordGrid(chords, {
       beatsPerBar: m.beatsPerBar, totalBars: m.totalBars, showDegree: state.showDegree,
     }));
+    state._dispChords = chords; // 再生中の「今のコード」表示用キャッシュ
   }
 
   /* ==================== 歌詞パネル (自動割り付け) ==================== */
@@ -758,7 +890,9 @@
     // シート本体
     const sheet = document.createElement('div');
     sheet.className = 'ly-sheet';
-    for (const line of computeLyricsLayout()) {
+    const layout = computeLyricsLayout();
+    state._lyricsLayout = layout; // 再生中の「今の歌詞」表示用キャッシュ
+    for (const line of layout) {
       if (line.blank) {
         const gap = document.createElement('div');
         gap.className = 'ly-gap';
@@ -817,9 +951,52 @@
         time: div / 4,
         dur: Math.max(...ns.map(n => n.durBeat)),
         pitches: ns.map(n => n.pitch),
+        meta: ns, // グリス等の演奏情報を運指割当後に引き継ぐ
       });
     }
     return events;
+  }
+
+  // 運指割当の結果に元ノートのグリス情報(artic/toPitch)を付け直す
+  function attachArtics(assigned, events) {
+    for (let i = 0; i < assigned.length && i < events.length; i++) {
+      const metas = [...(events[i].meta || [])];
+      for (const note of assigned[i].notes) {
+        const mi = metas.findIndex(m => m.pitch === note.pitch && (m.artic || m.toPitch));
+        if (mi >= 0) {
+          note.artic = metas[mi].artic;
+          note.toPitch = metas[mi].toPitch;
+          metas.splice(mi, 1);
+        }
+      }
+    }
+    return assigned;
+  }
+
+  function tabStringNames(base) {
+    return state.tabFlip ? [...base].reverse() : base;
+  }
+
+  // TAB上下反転トグル + 凡例
+  function tabControls() {
+    const bar = document.createElement('div');
+    bar.className = 'tab-controls';
+    const legend = document.createElement('span');
+    legend.className = 'hint';
+    legend.textContent = state.tabFlip
+      ? '上=6弦(低音側) / 下=1弦(高音側)。 / \\ はグリス・チョーキング気味の音程移動'
+      : '上=1弦(高音側) / 下=6弦(低音側)。 / \\ はグリス・チョーキング気味の音程移動';
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-small';
+    btn.textContent = '↕ 弦の上下を反転';
+    btn.addEventListener('click', () => {
+      state.tabFlip = !state.tabFlip;
+      renderGuitarPanel();
+      renderBassPanel();
+    });
+    bar.appendChild(btn);
+    bar.appendChild(legend);
+    return bar;
   }
 
   /* ==================== ギターパネル ==================== */
@@ -848,11 +1025,13 @@
       sec.appendChild(Renderer.usedChordStrip(state.chords, state.key, displayShift()));
 
       const events = notesToEvents(tr.notes);
-      const assigned = Theory.assignFrets(events, Theory.GUITAR_TUNING);
+      const assigned = attachArtics(Theory.assignFrets(events, Theory.GUITAR_TUNING), events);
+      const names = tabStringNames(['e', 'B', 'G', 'D', 'A', 'E']);
       const svg = Renderer.tabSVG(assigned, {
-        strings: 6, stringNames: ['e', 'B', 'G', 'D', 'A', 'E'],
+        strings: 6, stringNames: names, flip: state.tabFlip, tuning: Theory.GUITAR_TUNING,
         beatsPerBar: m.beatsPerBar, totalBars: m.totalBars, chords: state.chords,
       });
+      sec.appendChild(tabControls());
       const wrap = document.createElement('div');
       wrap.className = 'score-scroll';
       wrap.appendChild(svg);
@@ -860,7 +1039,7 @@
       sec.appendChild(exportBar([
         ['📄 TAB譜をダウンロード (.txt)', () => Exporter.download(
           Exporter.textTab(assigned, {
-            ...m, strings: 6, stringNames: ['e', 'B', 'G', 'D', 'A', 'E'],
+            ...m, strings: 6, stringNames: names, flip: state.tabFlip, tuning: Theory.GUITAR_TUNING,
             chords: state.chords, instLabel: `ギター: ${tr.name}`,
           }), `${state.title}_ギターTAB_${tr.name}.txt`)],
         ['🖼 画像で保存 (.png)', () => Renderer.svgToPng(svg, `${state.title}_ギターTAB_${tr.name}.png`)],
@@ -888,11 +1067,13 @@
       sec.className = 'inst-section';
       sec.innerHTML = `<h3 class="inst-title">🎸 ${escapeHtml(tr.name)} (4弦ベース)</h3>`;
       const events = notesToEvents(tr.notes);
-      const assigned = Theory.assignFrets(events, Theory.BASS_TUNING);
+      const assigned = attachArtics(Theory.assignFrets(events, Theory.BASS_TUNING), events);
+      const names = tabStringNames(['G', 'D', 'A', 'E']);
       const svg = Renderer.tabSVG(assigned, {
-        strings: 4, stringNames: ['G', 'D', 'A', 'E'],
+        strings: 4, stringNames: names, flip: state.tabFlip, tuning: Theory.BASS_TUNING,
         beatsPerBar: m.beatsPerBar, totalBars: m.totalBars, chords: state.chords,
       });
+      sec.appendChild(tabControls());
       const wrap = document.createElement('div');
       wrap.className = 'score-scroll';
       wrap.appendChild(svg);
@@ -900,7 +1081,7 @@
       sec.appendChild(exportBar([
         ['📄 TAB譜をダウンロード (.txt)', () => Exporter.download(
           Exporter.textTab(assigned, {
-            ...m, strings: 4, stringNames: ['G', 'D', 'A', 'E'],
+            ...m, strings: 4, stringNames: names, flip: state.tabFlip, tuning: Theory.BASS_TUNING,
             chords: state.chords, instLabel: `ベース: ${tr.name}`,
           }), `${state.title}_ベースTAB_${tr.name}.txt`)],
         ['🖼 画像で保存 (.png)', () => Renderer.svgToPng(svg, `${state.title}_ベースTAB_${tr.name}.png`)],
@@ -1026,16 +1207,20 @@
     }
     if (state.activeSource === 'midi') {
       for (const tr of tracksByRole('guitar')) {
-        const assigned = Theory.assignFrets(notesToEvents(tr.notes), Theory.GUITAR_TUNING);
+        const events = notesToEvents(tr.notes);
+        const assigned = attachArtics(Theory.assignFrets(events, Theory.GUITAR_TUNING), events);
         parts.push(Exporter.textTab(assigned, {
-          ...m, strings: 6, stringNames: ['e', 'B', 'G', 'D', 'A', 'E'],
+          ...m, strings: 6, stringNames: tabStringNames(['e', 'B', 'G', 'D', 'A', 'E']),
+          flip: state.tabFlip, tuning: Theory.GUITAR_TUNING,
           chords: state.chords, instLabel: `ギター: ${tr.name}`,
         }).split('\n').slice(7).join('\n'));
       }
       for (const tr of tracksByRole('bass')) {
-        const assigned = Theory.assignFrets(notesToEvents(tr.notes), Theory.BASS_TUNING);
+        const events = notesToEvents(tr.notes);
+        const assigned = attachArtics(Theory.assignFrets(events, Theory.BASS_TUNING), events);
         parts.push(Exporter.textTab(assigned, {
-          ...m, strings: 4, stringNames: ['G', 'D', 'A', 'E'],
+          ...m, strings: 4, stringNames: tabStringNames(['G', 'D', 'A', 'E']),
+          flip: state.tabFlip, tuning: Theory.BASS_TUNING,
           chords: state.chords, instLabel: `ベース: ${tr.name}`,
         }).split('\n').slice(7).join('\n'));
       }

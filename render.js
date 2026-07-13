@@ -90,7 +90,9 @@ const Renderer = (() => {
    * ======================================= */
   function tabSVG(events, opts) {
     const nStrings = opts.strings;             // 6 or 4
-    const stringNames = opts.stringNames;       // ['e','B','G','D','A','E']等 (上から)
+    const stringNames = opts.stringNames;       // 表示上段から順
+    const flip = !!opts.flip;                   // true = 低音弦を上に
+    const tuning = opts.tuning || null;         // グリス先フレット計算用
     const beatsPerBar = opts.beatsPerBar || 4;
     const totalBars = opts.totalBars;
     const chords = opts.chords || null;
@@ -143,7 +145,7 @@ const Renderer = (() => {
           txt(svg, x, y0 - 10, c.label, 'tab-chord-name', 'start');
         }
       }
-      // 音符(フレット数字)
+      // 音符(フレット数字。グリス/チョーキングは 3/5 のように行き先も表記)
       for (const [div, notes] of grid) {
         const bar = Math.floor(div / divPerBar);
         if (bar < row * barsPerRow || bar >= row * barsPerRow + rowBars) continue;
@@ -151,9 +153,16 @@ const Renderer = (() => {
         const barIdx = Math.floor(divInRow / divPerBar);
         const x = LEFT + barIdx * barW + (divInRow % divPerBar) * CELL + 10;
         for (const n of notes) {
-          const lineIdx = nStrings - 1 - n.string; // string 0 = 最低弦 = 一番下
+          const lineIdx = flip ? n.string : nStrings - 1 - n.string;
           const y = y0 + lineIdx * lineGap;
-          const s = String(n.fret);
+          let s = String(n.fret);
+          if (n.artic && tuning) {
+            const toFret = (n.toPitch !== null && n.toPitch !== undefined)
+              ? n.toPitch - tuning[n.string] : null;
+            if (toFret !== null && toFret >= 0 && toFret <= 22) {
+              s += (n.artic === 'up' ? '/' : '\\') + toFret;
+            }
+          }
           el('rect', {
             x: x - s.length * 4 - 2, y: y - 6.5,
             width: s.length * 8 + 4, height: 13, class: 'tab-num-bg'
@@ -162,6 +171,21 @@ const Renderer = (() => {
         }
       }
     }
+
+    // 再生カーソル(appのハイライトループが位置を更新する)
+    const cursor = el('line', { x1: -10, y1: 0, x2: -10, y2: 10, class: 'play-cursor' }, svg);
+    svg.__cursor = cursor;
+    svg.__beatPos = beat => {
+      const bar = beat / beatsPerBar;
+      const row = Math.max(0, Math.min(nRows - 1, Math.floor(bar / barsPerRow)));
+      const barInRow = bar - row * barsPerRow;
+      const y0 = TOP + row * rowGap + 20;
+      return {
+        x: LEFT + barInRow * barW + 10,
+        y1: y0 - 4,
+        y2: y0 + staffH + 4,
+      };
+    };
     return svg;
   }
 
@@ -316,6 +340,21 @@ const Renderer = (() => {
         });
       }
     }
+
+    // 再生カーソル
+    const cursor = el('line', { x1: -10, y1: 0, x2: -10, y2: 10, class: 'play-cursor' }, svg);
+    svg.__cursor = cursor;
+    svg.__beatPos = beat => {
+      const bar = beat / beatsPerBar;
+      const row = Math.max(0, Math.min(nRows - 1, Math.floor(bar / barsPerRow)));
+      const barInRow = bar - row * barsPerRow;
+      const y0 = TOP + row * rowGap + 34;
+      return {
+        x: LEFT + barInRow * barW + 12,
+        y1: y0 - 4,
+        y2: y0 + (grand ? bassTop + 4 * SP : trebleH) + 4,
+      };
+    };
     return svg;
   }
 

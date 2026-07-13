@@ -144,30 +144,49 @@ const Transcriber = (() => {
     }
 
     // セグメント化 → ノート
+    // 隣接フレーム間の急なジャンプでのみ分割し、なだらかな音程変化は
+    // 1音のグリッサンド/チョーキングとして扱う
     const frameDur = hop / SR;
     const notes = [];
-    let start = -1, sum = 0, cnt = 0, velSum = 0;
+    let start = -1, velSum = 0;
+    let runPitches = [];
+    const median = arr => {
+      const a = [...arr].sort((x, y) => x - y);
+      return a[Math.floor(a.length / 2)];
+    };
     const flush = end => {
-      if (start < 0 || cnt === 0) return;
+      if (start < 0 || runPitches.length === 0) { start = -1; runPitches = []; velSum = 0; return; }
       const durSec = (end - start) * frameDur;
       if (durSec >= 0.09) {
-        notes.push({
+        const head = median(runPitches.slice(0, Math.min(3, runPitches.length)));
+        const tail = median(runPitches.slice(-3));
+        const note = {
           startSec: start * frameDur,
           durSec,
-          pitch: Math.round(sum / cnt),
-          vel: Math.min(120, Math.round(40 + 500 * (velSum / cnt) / (peakRms || 1))),
-        });
+          pitch: Math.round(head),
+          vel: Math.min(120, Math.round(40 + 500 * (velSum / runPitches.length) / (peakRms || 1))),
+          artic: null, toPitch: null,
+        };
+        if (Math.abs(tail - head) >= 0.8) { // グリス/チョーキング気味の音程移動
+          note.artic = tail > head ? 'up' : 'down';
+          note.toPitch = Math.round(tail);
+        }
+        notes.push(note);
       }
-      start = -1; sum = 0; cnt = 0; velSum = 0;
+      start = -1; runPitches = []; velSum = 0;
     };
+    let prevP = -1;
     for (let i = 0; i < nFrames; i++) {
       const p = smooth[i];
-      if (p < 0) { flush(i); continue; }
+      if (p < 0) { flush(i); prevP = -1; continue; }
       // 同音連打: 音量の急な立ち上がりで音符を分割
-      const reattack = cnt > 2 && i > 0 && rmsArr[i] > rmsArr[i - 1] * 1.8 && rmsArr[i] > gate * 2.5;
+      const reattack = runPitches.length > 2 && i > 0 && rmsArr[i] > rmsArr[i - 1] * 1.8 && rmsArr[i] > gate * 2.5;
+      const jump = prevP > 0 && Math.abs(p - prevP) > 0.6; // 急な音程ジャンプ = 別の音
       if (start < 0) { start = i; }
-      else if (Math.abs(p - sum / cnt) > 0.7 || reattack) { flush(i); start = i; }
-      sum += p; cnt++; velSum += energy[i];
+      else if (jump || reattack) { flush(i); start = i; }
+      runPitches.push(p);
+      velSum += energy[i];
+      prevP = p;
     }
     flush(nFrames);
     return notes;
@@ -317,7 +336,10 @@ const Transcriber = (() => {
   }
 
   /* ---------- メイン: ステムファイル群 → ソングモデル ---------- */
-  async function transcribeFiles(files, progressCb) {
+  // opts.fullMixBuffer: 楽曲ファイル(フルミックス)のArrayBuffer。
+  // あればコード・キー・テンポ解析はこちらを使う(ステム合算より高精度)
+  async function transcribeFiles(files, progressCb, opts) {
+    opts = opts || {};
     const stems = [];
     const total = files.length;
     for (let i = 0; i < total; i++) {
@@ -328,12 +350,18 @@ const Transcriber = (() => {
       stems.push({ file: f, name: cleanName(f.name), data, role: roleFromName(f.name) });
     }
 
-    // コード進行・キー・テンポは全ステムを合算したミックスから解析
-    // (採譜ノートの粗さに影響されない、実績あるクロマ+Viterbiエンジンを使う)
-    let maxLen = 0;
-    for (const s of stems) maxLen = Math.max(maxLen, s.data.length);
-    const mix = new Float32Array(maxLen);
-    for (const s of stems) for (let i = 0; i < s.data.length; i++) mix[i] += s.data[i] * (s.role === 'drums' ? 0.4 : 1);
+    // コード進行・キー・テンポの解析対象:
+    // 楽曲ファイルがあればそれを、なければ全ステムを合算したミックスを使う
+    let mix;
+    if (opts.fullMixBuffer) {
+      progressCb('楽曲ファイル(フルミックス)を読み込み中…', 0.15 / (total + 1));
+      mix = await decodeMono(opts.fullMixBuffer);
+    } else {
+      let maxLen = 0;
+      for (const s of stems) maxLen = Math.max(maxLen, s.data.length);
+      mix = new Float32Array(maxLen);
+      for (const s of stems) for (let i = 0; i < s.data.length; i++) mix[i] += s.data[i] * (s.role === 'drums' ? 0.4 : 1);
+    }
     const chordResult = await AudioAnalyzer.analyzeMono(mix, SR, p =>
       progressCb('コード進行とテンポを解析中…', (0.3 + 0.6 * p) / (total + 1)));
     const bpm = chordResult.bpm;
@@ -407,6 +435,7 @@ const Transcriber = (() => {
         durTick: Math.max(1, Math.round(durBeat * ppq)),
         pitch: n.pitch, vel: n.vel || 85, ch: 0,
         beat, durBeat,
+        artic: n.artic || null, toPitch: n.toPitch || null,
       });
     }
     notes.sort((a, b) => a.tick - b.tick || a.pitch - b.pitch);
