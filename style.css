@@ -118,6 +118,12 @@ main { max-width: 1080px; margin: 0 auto; padding: 0 20px 60px; }
 
 .tab-controls { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
 
+.offset-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
+}
+.offset-val { min-width: 60px; text-align: center; font-weight: 700; font-family: ui-monospace, monospace; }
+
 .play-cursor { stroke: #ef476f; stroke-width: 2; opacity: .85; }
 
 .upload-notice {
@@ -309,6 +315,7 @@ main { max-width: 1080px; margin: 0 auto; padding: 0 20px 60px; }
 .tab-chord-name { fill: #0f766e; font-size: 13px; font-weight: 800; font-family: inherit; }
 .tab-num { fill: var(--paper-ink); font-size: 12px; font-weight: 700; font-family: ui-monospace, monospace; }
 .tab-num-bg { fill: var(--paper); }
+.strum-mark { fill: none; stroke: #8b5cf6; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
 
 /* 五線譜 */
 .staff-line { stroke: #8b93a1; stroke-width: 1; }

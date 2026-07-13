@@ -293,20 +293,56 @@ const AudioAnalyzer = (() => {
     }
     const bpm = Math.round(best.bpm * 10) / 10;
     const beatDur = 60 / bpm;
-    // 位相: envとの整合が最大になるオフセット
+
+    // 前奏がアンビエント/ルバートだと、位相フィッティングをそこに合わせてしまい
+    // 曲全体がズレる。「ビートが安定して刻まれ始める場所」を先に見つけ、
+    // そこを基準に位相を決める(前奏部分はそこからの逆算グリッドになる)。
+    const steadyStart = findSteadyStart(env, frameDur, n);
     let bestPhase = 0, bestPS = -1;
+    const searchStart = Math.min(steadyStart, Math.max(0, duration - 8));
+    const searchEnd = Math.min(duration, searchStart + 60);
     for (let ph = 0; ph < beatDur; ph += frameDur) {
       let s = 0;
-      for (let t = ph; t < Math.min(duration, 60); t += beatDur) {
+      for (let t = searchStart + ph; t < searchEnd; t += beatDur) {
         const f = Math.round(t / frameDur);
         if (f < n) s += env[f];
       }
       if (s > bestPS) { bestPS = s; bestPhase = ph; }
     }
+    let absPhase = (searchStart + bestPhase) % beatDur;
+    if (absPhase < 0) absPhase += beatDur;
+
     const beatTimes = [];
-    for (let t = bestPhase; t <= duration; t += beatDur) beatTimes.push(t);
+    for (let t = absPhase; t <= duration; t += beatDur) beatTimes.push(t);
     if (beatTimes.length < 2) beatTimes.push(duration);
     return { bpm, beatTimes };
+  }
+
+  // オンセット強度が「全体の中央値の1.6倍」を2秒以上持続する最初の時刻を
+  // 「ビートが安定して始まる場所」とみなす(見つからなければ曲の先頭)
+  function findSteadyStart(env, frameDur, n) {
+    const winFrames = Math.max(1, Math.round(1 / frameDur));
+    const sustainFrames = Math.max(1, Math.round(2 / frameDur));
+    const roll = new Float32Array(n);
+    let acc = 0;
+    for (let i = 0; i < n; i++) {
+      acc += env[i];
+      if (i >= winFrames) acc -= env[i - winFrames];
+      roll[i] = acc / Math.min(i + 1, winFrames);
+    }
+    const sorted = [...roll].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)] || 0;
+    const thresh = median * 1.6;
+    let run = 0;
+    for (let i = 0; i < n; i++) {
+      if (roll[i] > thresh) {
+        run++;
+        if (run >= sustainFrames) return Math.max(0, (i - sustainFrames + 1) * frameDur);
+      } else {
+        run = 0;
+      }
+    }
+    return 0;
   }
 
   /* ---------- Viterbi コード平滑化 ---------- */

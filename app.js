@@ -27,6 +27,7 @@
     staged: { audio: null, stems: [], stemsKind: null },
     tabFlip: false,        // TAB譜の上下反転(false = 1弦が上の標準)
     beatSecs: null,        // 拍→秒の対応表(再生カーソル用)
+    timeOffset: 0,         // 手動タイミング補正(秒)。自動テンポ検出が前奏などでズレた時の微調整用
   };
 
   const ROLE_LABELS = {
@@ -143,6 +144,7 @@
     if (!st.audio && !st.stems.length) return;
     stopAllPlayback();
     resetLyrics();
+    state.timeOffset = 0;
 
     // 歌詞を先に取り込む(解析後すぐシート生成される)
     const lyricsText = $('#lyricsStage').value;
@@ -493,6 +495,44 @@
     np.id = 'nowPlaying';
     np.hidden = true;
     holder.appendChild(np);
+
+    // 手動タイミング補正: 自動テンポ検出が前奏などでズレた時にここで微調整する
+    if (realUrl || state.activeSource === 'midi') {
+      holder.appendChild(timingOffsetControls());
+    }
+  }
+
+  function timingOffsetControls() {
+    const bar = document.createElement('div');
+    bar.className = 'offset-bar';
+    const label = document.createElement('span');
+    label.className = 'ctrl-label';
+    label.textContent = 'タイミング調整(前奏などでズレる場合)';
+    bar.appendChild(label);
+    const valSpan = document.createElement('span');
+    valSpan.className = 'offset-val';
+    valSpan.id = 'offsetVal';
+    const renderVal = () => { valSpan.textContent = (state.timeOffset >= 0 ? '+' : '') + state.timeOffset.toFixed(2) + '秒'; };
+    renderVal();
+    const step = (d) => { state.timeOffset = Math.round((state.timeOffset + d) * 100) / 100; renderVal(); };
+    const mkBtn = (label, d) => {
+      const b = document.createElement('button');
+      b.className = 'btn btn-small';
+      b.textContent = label;
+      b.addEventListener('click', () => step(d));
+      return b;
+    };
+    bar.appendChild(mkBtn('−0.5', -0.5));
+    bar.appendChild(mkBtn('−0.1', -0.1));
+    bar.appendChild(valSpan);
+    bar.appendChild(mkBtn('+0.1', 0.1));
+    bar.appendChild(mkBtn('+0.5', 0.5));
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'btn btn-small';
+    resetBtn.textContent = 'リセット';
+    resetBtn.addEventListener('click', () => { state.timeOffset = 0; renderVal(); });
+    bar.appendChild(resetBtn);
+    return bar;
   }
 
   // ステム採譜のテンポ倍/半分補正(ビート格子ごと掛け直す)
@@ -587,7 +627,7 @@
     state.currentGetTime = getTime;
     const targets = [...$$('#panel-chords .chord-chip'), ...$$('#panel-lyrics .ly-line')];
     state.hlTimer = setInterval(() => {
-      const t = getTime();
+      const t = getTime() + state.timeOffset;
       for (const el of targets) {
         const s = parseFloat(el.dataset.startSec);
         const e = parseFloat(el.dataset.endSec);
@@ -1029,9 +1069,13 @@
       const names = tabStringNames(['e', 'B', 'G', 'D', 'A', 'E']);
       const svg = Renderer.tabSVG(assigned, {
         strings: 6, stringNames: names, flip: state.tabFlip, tuning: Theory.GUITAR_TUNING,
-        beatsPerBar: m.beatsPerBar, totalBars: m.totalBars, chords: state.chords,
+        beatsPerBar: m.beatsPerBar, totalBars: m.totalBars, chords: state.chords, showStrum: true,
       });
       sec.appendChild(tabControls());
+      const strumNote = document.createElement('p');
+      strumNote.className = 'hint';
+      strumNote.textContent = '⊓ =ダウン / V =アップ。8分音符ベースの一般的な弾き方の目安です(音源から実際のピック方向を検出したものではありません)。';
+      sec.appendChild(strumNote);
       const wrap = document.createElement('div');
       wrap.className = 'score-scroll';
       wrap.appendChild(svg);

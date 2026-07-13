@@ -97,6 +97,7 @@ const Renderer = (() => {
     const totalBars = opts.totalBars;
     const chords = opts.chords || null;
     const barsPerRow = opts.barsPerRow || 4;
+    const showStrum = !!opts.showStrum;         // ギターのみ: ストロークパターンの目安を表示
     const CELL = 13;                             // 16分音符1つの幅
     const divPerBeat = 4;
     const divPerBar = beatsPerBar * divPerBeat;
@@ -104,7 +105,8 @@ const Renderer = (() => {
     const LEFT = 34, TOP = 30;
     const lineGap = 15;
     const staffH = (nStrings - 1) * lineGap;
-    const rowGap = staffH + 74;
+    const topPad = showStrum ? 34 : 20;          // 段の先頭〜1弦線までの余白
+    const rowGap = staffH + 74 + (showStrum ? 14 : 0);
     const nRows = Math.ceil(totalBars / barsPerRow);
     const W = LEFT + barsPerRow * barW + 16;
     const H = TOP + nRows * rowGap + 10;
@@ -121,7 +123,7 @@ const Renderer = (() => {
     }
 
     for (let row = 0; row < nRows; row++) {
-      const y0 = TOP + row * rowGap + 20;
+      const y0 = TOP + row * rowGap + topPad;
       const rowBars = Math.min(barsPerRow, totalBars - row * barsPerRow);
       const rowW = rowBars * barW;
       // 弦
@@ -133,7 +135,7 @@ const Renderer = (() => {
       for (let b = 0; b <= rowBars; b++) {
         const x = LEFT + b * barW;
         el('line', { x1: x, y1: y0, x2: x, y2: y0 + staffH, class: 'tab-barline' }, svg);
-        if (b < rowBars) txt(svg, x + 4, y0 - 26, String(row * barsPerRow + b + 1), 'bar-number', 'start');
+        if (b < rowBars) txt(svg, x + 4, y0 - topPad + 6, String(row * barsPerRow + b + 1), 'bar-number', 'start');
       }
       // コードネーム
       if (chords) {
@@ -143,6 +145,26 @@ const Renderer = (() => {
           const beatInRow = c.startBeat - row * barsPerRow * beatsPerBar;
           const x = LEFT + (beatInRow / beatsPerBar) * barW + 4;
           txt(svg, x, y0 - 10, c.label, 'tab-chord-name', 'start');
+        }
+      }
+      // ストロークパターン(音源からの検出ではなく、8分音符ベースの一般的な目安)
+      if (showStrum) {
+        const divPerEighth = divPerBeat / 2;
+        for (let bi = 0; bi < rowBars; bi++) {
+          for (let e = 0; e < beatsPerBar * 2; e++) {
+            const divStart = (row * barsPerRow + bi) * divPerBar + e * divPerEighth;
+            let hasNote = false;
+            for (let d = divStart; d < divStart + divPerEighth; d++) if (grid.has(d)) { hasNote = true; break; }
+            if (!hasNote) continue;
+            const x = LEFT + bi * barW + e * divPerEighth * CELL + 10;
+            const y = y0 - 22;
+            const down = e % 2 === 0;
+            if (down) {
+              el('path', { d: `M ${x - 4} ${y + 5} L ${x - 4} ${y - 3} L ${x + 4} ${y - 3} L ${x + 4} ${y + 5}`, class: 'strum-mark' }, svg);
+            } else {
+              el('path', { d: `M ${x - 4} ${y - 3} L ${x} ${y + 5} L ${x + 4} ${y - 3}`, class: 'strum-mark' }, svg);
+            }
+          }
         }
       }
       // 音符(フレット数字。グリス/チョーキングは 3/5 のように行き先も表記)
@@ -172,17 +194,17 @@ const Renderer = (() => {
       }
     }
 
-    // 再生カーソル(appのハイライトループが位置を更新する)
+    // 再生カーソル(appのハイライトループが位置を更新する)。チョード名の上から譜表下まで貫く
     const cursor = el('line', { x1: -10, y1: 0, x2: -10, y2: 10, class: 'play-cursor' }, svg);
     svg.__cursor = cursor;
     svg.__beatPos = beat => {
       const bar = beat / beatsPerBar;
       const row = Math.max(0, Math.min(nRows - 1, Math.floor(bar / barsPerRow)));
       const barInRow = bar - row * barsPerRow;
-      const y0 = TOP + row * rowGap + 20;
+      const y0 = TOP + row * rowGap + topPad;
       return {
         x: LEFT + barInRow * barW + 10,
-        y1: y0 - 4,
+        y1: y0 - topPad,
         y2: y0 + staffH + 4,
       };
     };
