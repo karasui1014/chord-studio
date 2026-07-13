@@ -22,7 +22,7 @@
     synth: null,
     rafId: null,
     currentGetTime: null,  // 再生中: 現在時刻(秒)を返す関数。停止中はnull
-    lyrics: { raw: '', lines: [], editing: true, startBar: 1, barsPerLine: 'auto' },
+    lyrics: { raw: '', lines: [], editing: true, startBar: 1, barsPerLine: 'auto', mode: 'auto' },
     // 解析前のステージング(全部セットしてから「解析開始」で一括解析)
     staged: { audio: null, stems: [], stemsKind: null },
     tabFlip: false,        // TAB譜の上下反転(false = 1弦が上の標準)
@@ -391,7 +391,7 @@
   }
 
   function resetLyrics() {
-    state.lyrics = { raw: '', lines: [], editing: true, startBar: 1, barsPerLine: 'auto' };
+    state.lyrics = { raw: '', lines: [], editing: true, startBar: 1, barsPerLine: 'auto', mode: 'auto' };
   }
 
   /* ==================== 拍→秒テーブル (再生カーソル用) ==================== */
@@ -511,11 +511,21 @@
       dbl.className = 'btn btn-small';
       dbl.textContent = 'テンポ×2';
       dbl.addEventListener('click', () => scaleTempo(2));
+      const shiftL = document.createElement('button');
+      shiftL.className = 'btn btn-small';
+      shiftL.textContent = '小節頭←1拍';
+      shiftL.addEventListener('click', () => shiftBeatGrid(-1));
+      const shiftR = document.createElement('button');
+      shiftR.className = 'btn btn-small';
+      shiftR.textContent = '小節頭→1拍';
+      shiftR.addEventListener('click', () => shiftBeatGrid(1));
       const note = document.createElement('span');
       note.className = 'hint';
-      note.textContent = ' BPMや小節の数え方が倍/半分にズレているときに押してください';
+      note.textContent = ' テンポ=BPMが倍/半分のとき、小節頭=コードの変わり目が小節の頭に来ないとき';
       holder.appendChild(dbl);
       holder.appendChild(half);
+      holder.appendChild(shiftL);
+      holder.appendChild(shiftR);
       holder.appendChild(note);
     }
     // 再生中に「今のコード + 歌詞」をどのタブでも見えるように
@@ -561,6 +571,46 @@
     resetBtn.addEventListener('click', () => { state.timeOffset = 0; renderVal(); });
     bar.appendChild(resetBtn);
     return bar;
+  }
+
+  // 小節頭の1拍補正: ビート格子の先頭を1拍分ずらす。
+  // 全イベントの「秒」は保ったまま、小節の区切りだけが動く。
+  function shiftBeatGrid(dir) {
+    const song = state.song;
+    if (!song || !song.chordResult) return;
+    stopAllPlayback();
+    const bt = song.chordResult.beatTimes;
+    if (dir > 0) {
+      if (bt.length <= 6) return;
+      song.chordResult.beatTimes = bt.slice(1);
+    } else {
+      const p = Math.max(0.2, bt[1] - bt[0]);
+      song.chordResult.beatTimes = [Math.max(0, bt[0] - p), ...bt];
+    }
+    const shift = dir > 0 ? -1 : 1;
+    const clampChords = [];
+    for (const c of song.chordResult.chords) {
+      const s = c.startBeat + shift, e = c.endBeat + shift;
+      if (e <= 0) continue;
+      c.startBeat = Math.max(0, s);
+      c.endBeat = e;
+      clampChords.push(c);
+    }
+    song.chordResult.chords = clampChords;
+    for (const tr of song.tracks) {
+      for (const n of tr.notes) {
+        n.beat = Math.max(0, n.beat + shift);
+        n.tick = Math.round(n.beat * song.ppq);
+      }
+    }
+    const grid = Transcriber.makeBeatGrid(song.chordResult.beatTimes, song.bpm);
+    song.tickToSec = t => grid.beatToSec(t / song.ppq);
+    song.chordResult.totalBars = Math.max(1, Math.ceil((song.chordResult.beatTimes.length - 1) / song.beatsPerBar));
+    let maxBeat = 4;
+    for (const tr of song.tracks) for (const n of tr.notes) maxBeat = Math.max(maxBeat, n.beat + n.durBeat);
+    song.totalBars = Math.max(song.chordResult.totalBars, Math.ceil(maxBeat / song.beatsPerBar));
+    reanalyzeMidi();
+    renderResults();
   }
 
   // ステム採譜のテンポ倍/半分補正(ビート格子ごと掛け直す)
@@ -769,39 +819,134 @@
   }
 
   // 歌詞行 → 小節範囲 → コードの自動割り付け
+  /* ---------- ボーカルフレーズ検出 ----------
+   * 採譜済みのボーカル(melodyロール)から「歌っている区間」を検出する。
+   * 休符(1.2拍以上)でフレーズを区切る。 */
+  function vocalPhrases() {
+    if (!state.song) return null;
+    const vocal = state.song.tracks.find(t => t.role === 'melody' && t.notes.length >= 8);
+    if (!vocal) return null;
+    const notes = [...vocal.notes].sort((a, b) => a.beat - b.beat);
+    const phrases = [];
+    let cur = null;
+    for (const n of notes) {
+      if (!cur || n.beat - cur.endBeat >= 1.2) {
+        cur = { startBeat: n.beat, endBeat: n.beat + n.durBeat };
+        phrases.push(cur);
+      } else {
+        cur.endBeat = Math.max(cur.endBeat, n.beat + n.durBeat);
+      }
+    }
+    return phrases.filter(p => p.endBeat - p.startBeat >= 0.5);
+  }
+
+  /* 歌詞行をボーカルフレーズに割り付ける。
+   * 行の頭は必ずいずれかのフレーズ頭に置く(歌い出しは必ずフレーズ頭のため)。
+   * どのフレーズ頭にするかは「歌唱タイムライン」(フレーズ部分だけを繋いだ
+   * 時間軸)上で行を等分した位置に最も近いものを、単調順序を保って選ぶ。 */
+  function layoutFromVocals(nLines, phrases) {
+    const nP = phrases.length;
+    const durs = phrases.map(p => p.endBeat - p.startBeat);
+    const total = durs.reduce((a, b) => a + b, 0);
+    if (total <= 0) return null;
+    const cumStart = [0];
+    for (let i = 0; i < nP - 1; i++) cumStart.push(cumStart[i] + durs[i]);
+
+    const spans = [];
+    if (nP >= nLines) {
+      // 行ごとに開始フレーズを単調に選ぶ(残り行数ぶんのフレーズは必ず残す)
+      const startIdxs = [];
+      let idx = 0;
+      for (let li = 0; li < nLines; li++) {
+        const target = li * total / nLines;
+        const maxIdx = nP - (nLines - li);
+        let best = Math.min(idx, maxIdx);
+        for (let i = idx; i <= maxIdx; i++) {
+          if (Math.abs(cumStart[i] - target) < Math.abs(cumStart[best] - target)) best = i;
+        }
+        startIdxs.push(best);
+        idx = best + 1;
+      }
+      for (let li = 0; li < nLines; li++) {
+        const s = phrases[startIdxs[li]].startBeat;
+        const endIdx = li < nLines - 1 ? startIdxs[li + 1] - 1 : nP - 1;
+        const e = Math.max(s + 1, phrases[endIdx].endBeat);
+        spans.push({ startBeat: s, endBeat: e });
+      }
+    } else {
+      // 行数の方が多い: フレーズ内をタイムライン等分で分割
+      const pos = u => {
+        let acc = 0;
+        for (let i = 0; i < nP; i++) {
+          if (u <= acc + durs[i] || i === nP - 1) {
+            return phrases[i].startBeat + Math.min(durs[i], Math.max(0, u - acc));
+          }
+          acc += durs[i];
+        }
+        return phrases[nP - 1].endBeat;
+      };
+      for (let li = 0; li < nLines; li++) {
+        const s = pos(li * total / nLines);
+        const e = li === nLines - 1 ? phrases[nP - 1].endBeat : pos((li + 1) * total / nLines);
+        spans.push({ startBeat: s, endBeat: Math.max(s + 1, e) });
+      }
+    }
+    return spans;
+  }
+
+  function buildLyricLine(text, startBeat, endBeat, chords, m) {
+    const lineChords = chords
+      .filter(c => c.startBeat < endBeat && c.endBeat > startBeat)
+      .map(c => ({
+        label: c.label,
+        pos: Math.max(0, (c.startBeat - startBeat) / (endBeat - startBeat)),
+      }));
+    return {
+      text,
+      bar: Math.floor(startBeat / m.beatsPerBar) + 1,
+      startBeat, endBeat,
+      startSec: beatToSec(startBeat),
+      endSec: beatToSec(endBeat),
+      chords: lineChords,
+    };
+  }
+
   function computeLyricsLayout() {
     const L = state.lyrics;
     const m = currentMeta();
     const sungCount = L.lines.filter(l => !l.blank).length;
     if (sungCount === 0) return [];
+    const chords = displayedChords();
+    const out = [];
+
+    // 自動モード: ボーカルフレーズに合わせる(検出できた場合)
+    if ((L.mode || 'auto') === 'auto') {
+      const phrases = vocalPhrases();
+      const spans = phrases && phrases.length >= 2 ? layoutFromVocals(sungCount, phrases) : null;
+      if (spans) {
+        let si = 0;
+        for (const line of L.lines) {
+          if (line.blank) { out.push({ blank: true }); continue; }
+          const sp = spans[si++];
+          out.push(buildLyricLine(line.text, sp.startBeat, sp.endBeat, chords, m));
+        }
+        out._autoAligned = true;
+        return out;
+      }
+    }
+
+    // 手動モード(またはボーカル未検出): 小節数で均等割付
     const startBar = Math.max(0, (L.startBar || 1) - 1);
     const avail = Math.max(1, m.totalBars - startBar);
     const stride = L.barsPerLine === 'auto'
       ? avail / sungCount
       : Number(L.barsPerLine);
-    const chords = displayedChords();
     let cursor = startBar;
-    const out = [];
     for (const line of L.lines) {
       if (line.blank) { out.push({ blank: true }); continue; }
       const b0 = cursor, b1 = cursor + stride;
       cursor = b1;
-      const startBeat = b0 * m.beatsPerBar;
-      const endBeat = b1 * m.beatsPerBar;
-      const lineChords = chords
-        .filter(c => c.startBeat < endBeat && c.endBeat > startBeat)
-        .map(c => ({
-          label: c.label,
-          pos: Math.max(0, (c.startBeat - startBeat) / (endBeat - startBeat)),
-        }));
-      out.push({
-        text: line.text,
-        bar: Math.floor(b0) + 1,
-        startBeat, endBeat,
-        startSec: beatToSec(startBeat),
-        endSec: beatToSec(endBeat),
-        chords: lineChords,
-      });
+      out.push(buildLyricLine(line.text, b0 * m.beatsPerBar, b1 * m.beatsPerBar, chords, m));
     }
     return out;
   }
@@ -856,40 +1001,64 @@
     const bar = document.createElement('div');
     bar.className = 'ly-controls';
 
-    const startLabel = document.createElement('label');
-    startLabel.className = 'ly-ctrl';
-    startLabel.textContent = '歌い出しの小節 ';
-    const startInput = document.createElement('input');
-    startInput.type = 'number';
-    startInput.min = 1;
-    startInput.max = m.totalBars;
-    startInput.value = L.startBar;
-    startInput.addEventListener('change', () => {
-      L.startBar = Math.max(1, Math.min(m.totalBars, Math.round(+startInput.value || 1)));
-      renderLyricsPanel();
-      refreshScorePanels();
-    });
-    startLabel.appendChild(startInput);
-    bar.appendChild(startLabel);
-
-    const strideLabel = document.createElement('label');
-    strideLabel.className = 'ly-ctrl';
-    strideLabel.textContent = '1行あたりの小節数 ';
-    const strideSel = document.createElement('select');
-    for (const [v, t] of [['auto', '自動'], ['1', '1小節'], ['2', '2小節'], ['4', '4小節'], ['8', '8小節']]) {
+    // 合わせ方: 自動(ボーカルフレーズに割付) / 手動(小節数で均等割付)
+    const hasVocal = !!vocalPhrases();
+    const modeLabel = document.createElement('label');
+    modeLabel.className = 'ly-ctrl';
+    modeLabel.textContent = '合わせ方 ';
+    const modeSel = document.createElement('select');
+    for (const [v, t] of [['auto', hasVocal ? '自動(ボーカルに合わせる)' : '自動(ボーカル未検出)'], ['manual', '手動(小節数で割付)']]) {
       const opt = document.createElement('option');
       opt.value = v;
       opt.textContent = t;
-      if (String(L.barsPerLine) === v) opt.selected = true;
-      strideSel.appendChild(opt);
+      if ((L.mode || 'auto') === v) opt.selected = true;
+      modeSel.appendChild(opt);
     }
-    strideSel.addEventListener('change', () => {
-      L.barsPerLine = strideSel.value === 'auto' ? 'auto' : +strideSel.value;
+    modeSel.addEventListener('change', () => {
+      L.mode = modeSel.value;
       renderLyricsPanel();
       refreshScorePanels();
     });
-    strideLabel.appendChild(strideSel);
-    bar.appendChild(strideLabel);
+    modeLabel.appendChild(modeSel);
+    bar.appendChild(modeLabel);
+
+    const isAuto = (L.mode || 'auto') === 'auto' && hasVocal;
+    if (!isAuto) {
+      const startLabel = document.createElement('label');
+      startLabel.className = 'ly-ctrl';
+      startLabel.textContent = '歌い出しの小節 ';
+      const startInput = document.createElement('input');
+      startInput.type = 'number';
+      startInput.min = 1;
+      startInput.max = m.totalBars;
+      startInput.value = L.startBar;
+      startInput.addEventListener('change', () => {
+        L.startBar = Math.max(1, Math.min(m.totalBars, Math.round(+startInput.value || 1)));
+        renderLyricsPanel();
+        refreshScorePanels();
+      });
+      startLabel.appendChild(startInput);
+      bar.appendChild(startLabel);
+
+      const strideLabel = document.createElement('label');
+      strideLabel.className = 'ly-ctrl';
+      strideLabel.textContent = '1行あたりの小節数 ';
+      const strideSel = document.createElement('select');
+      for (const [v, t] of [['auto', '自動'], ['1', '1小節'], ['2', '2小節'], ['4', '4小節'], ['8', '8小節']]) {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = t;
+        if (String(L.barsPerLine) === v) opt.selected = true;
+        strideSel.appendChild(opt);
+      }
+      strideSel.addEventListener('change', () => {
+        L.barsPerLine = strideSel.value === 'auto' ? 'auto' : +strideSel.value;
+        renderLyricsPanel();
+        refreshScorePanels();
+      });
+      strideLabel.appendChild(strideSel);
+      bar.appendChild(strideLabel);
+    }
 
     const editBtn = document.createElement('button');
     editBtn.className = 'btn btn-small';
@@ -910,7 +1079,9 @@
 
     const hint = document.createElement('p');
     hint.className = 'hint';
-    hint.textContent = '再生すると今歌っている行がハイライトされます。ズレるときは「歌い出しの小節」(イントロの長さぶん)と「1行あたりの小節数」を調整してください。';
+    hint.textContent = isAuto
+      ? '🎤 ボーカルの歌いフレーズを検出して、各行を実際の歌い出しに合わせています。行の区切りがズレる場合は「手動」に切り替えて調整できます。'
+      : '再生すると今歌っている行がハイライトされます。ズレるときは「歌い出しの小節」(イントロの長さぶん)と「1行あたりの小節数」を調整してください。';
     holder.appendChild(hint);
 
     // シート本体
