@@ -98,6 +98,9 @@ const Renderer = (() => {
     const chords = opts.chords || null;
     const barsPerRow = opts.barsPerRow || 4;
     const showStrum = !!opts.showStrum;         // ギターのみ: ストロークパターンの目安を表示
+    const strumFill = !!opts.strumFill;         // 全8分スロットにストローク記号(コード弾き用)
+    const rhythm = !!opts.rhythm;               // 譜面下にリズム符幹(4分/8分)を表示
+    const lyrics = opts.lyrics || null;         // 歌詞行 [{text, startBeat, endBeat}]
     const CELL = 13;                             // 16分音符1つの幅
     const divPerBeat = 4;
     const divPerBar = beatsPerBar * divPerBeat;
@@ -106,7 +109,7 @@ const Renderer = (() => {
     const lineGap = 15;
     const staffH = (nStrings - 1) * lineGap;
     const topPad = showStrum ? 34 : 20;          // 段の先頭〜1弦線までの余白
-    const rowGap = staffH + 74 + (showStrum ? 14 : 0);
+    const rowGap = staffH + 74 + (showStrum ? 14 : 0) + (rhythm ? 8 : 0) + (lyrics ? 20 : 0);
     const nRows = Math.ceil(totalBars / barsPerRow);
     const W = LEFT + barsPerRow * barW + 16;
     const H = TOP + nRows * rowGap + 10;
@@ -137,14 +140,27 @@ const Renderer = (() => {
         el('line', { x1: x, y1: y0, x2: x, y2: y0 + staffH, class: 'tab-barline' }, svg);
         if (b < rowBars) txt(svg, x + 4, y0 - topPad + 6, String(row * barsPerRow + b + 1), 'bar-number', 'start');
       }
-      // コードネーム
+      // コードネーム: 各小節の頭に「鳴っているコード」を必ず表示し、
+      // 小節の途中で変わる場合はその拍位置にも表示する
       if (chords) {
-        for (const c of chords) {
-          const bar = Math.floor(c.startBeat / beatsPerBar);
-          if (bar < row * barsPerRow || bar >= row * barsPerRow + rowBars) continue;
-          const beatInRow = c.startBeat - row * barsPerRow * beatsPerBar;
+        const drawn = new Set();
+        const drawLabel = (beat, label) => {
+          const key = Math.round(beat * 4);
+          if (drawn.has(key)) return;
+          drawn.add(key);
+          const beatInRow = beat - row * barsPerRow * beatsPerBar;
           const x = LEFT + (beatInRow / beatsPerBar) * barW + 4;
-          txt(svg, x, y0 - 10, c.label, 'tab-chord-name', 'start');
+          txt(svg, x, y0 - 10, label, 'tab-chord-name', 'start');
+        };
+        for (let b = row * barsPerRow; b < row * barsPerRow + rowBars; b++) {
+          const beat = b * beatsPerBar;
+          const c = chords.find(c => c.startBeat <= beat + 0.01 && c.endBeat > beat + 0.01);
+          if (c) drawLabel(beat, c.label);
+        }
+        for (const c of chords) {
+          const bar = Math.floor(c.startBeat / beatsPerBar + 1e-6);
+          if (bar < row * barsPerRow || bar >= row * barsPerRow + rowBars) continue;
+          drawLabel(c.startBeat, c.label);
         }
       }
       // ストロークパターン(音源からの検出ではなく、8分音符ベースの一般的な目安)
@@ -153,9 +169,11 @@ const Renderer = (() => {
         for (let bi = 0; bi < rowBars; bi++) {
           for (let e = 0; e < beatsPerBar * 2; e++) {
             const divStart = (row * barsPerRow + bi) * divPerBar + e * divPerEighth;
-            let hasNote = false;
-            for (let d = divStart; d < divStart + divPerEighth; d++) if (grid.has(d)) { hasNote = true; break; }
-            if (!hasNote) continue;
+            if (!strumFill) {
+              let hasNote = false;
+              for (let d = divStart; d < divStart + divPerEighth; d++) if (grid.has(d)) { hasNote = true; break; }
+              if (!hasNote) continue;
+            }
             const x = LEFT + bi * barW + e * divPerEighth * CELL + 10;
             const y = y0 - 22;
             const down = e % 2 === 0;
@@ -165,6 +183,41 @@ const Renderer = (() => {
               el('path', { d: `M ${x - 4} ${y - 3} L ${x} ${y + 5} L ${x + 4} ${y - 3}`, class: 'strum-mark' }, svg);
             }
           }
+        }
+      }
+      // リズム符幹: 4分=棒のみ / 8分=旗1 / 16分=旗2 (2分以上は棒なし)
+      if (rhythm) {
+        for (const ev of events) {
+          const bar = Math.floor(ev.time / beatsPerBar + 1e-6);
+          if (bar < row * barsPerRow || bar >= row * barsPerRow + rowBars) continue;
+          const beatInRow = ev.time - row * barsPerRow * beatsPerBar;
+          const x = LEFT + (beatInRow / beatsPerBar) * barW + 10;
+          const dur = ev.dur || 1;
+          if (dur >= 3.5) continue; // 全音符相当は棒なし
+          const yTop = y0 + staffH + 5;
+          const yBot = yTop + 13;
+          el('line', { x1: x, y1: yTop, x2: x, y2: yBot, class: 'rhythm-stem' }, svg);
+          const flags = dur < 0.4 ? 2 : (dur < 0.8 ? 1 : 0);
+          for (let f = 0; f < flags; f++) {
+            el('path', { d: `M ${x} ${yBot - f * 5} q 7 -2 8 -8`, class: 'rhythm-flag' }, svg);
+          }
+        }
+      }
+      // 歌詞: 該当する拍位置に文字を割り付けて譜面の下に表示
+      if (lyrics) {
+        const lyricY = y0 + staffH + (rhythm ? 34 : 22);
+        for (const line of lyrics) {
+          if (line.blank || !line.text) continue;
+          const charsArr = [...line.text];
+          const span = line.endBeat - line.startBeat;
+          charsArr.forEach((ch, i) => {
+            const beat = line.startBeat + (i + 0.5) / charsArr.length * span;
+            const bar = Math.floor(beat / beatsPerBar);
+            if (bar < row * barsPerRow || bar >= row * barsPerRow + rowBars) return;
+            const beatInRow = beat - row * barsPerRow * beatsPerBar;
+            const x = LEFT + (beatInRow / beatsPerBar) * barW + 10;
+            txt(svg, x, lyricY, ch, 'score-lyric');
+          });
         }
       }
       // 音符(フレット数字。グリス/チョーキングは 3/5 のように行き先も表記)
@@ -222,6 +275,7 @@ const Renderer = (() => {
     const useFlat = opts.useFlat || false;
     const barsPerRow = opts.barsPerRow || 4;
     const grand = opts.grand !== false; // 大譜表(ト音+ヘ音)
+    const lyrics = opts.lyrics || null; // 歌詞行 [{text, startBeat, endBeat}]
     const CELL = 15;
     const divPerBeat = 4;
     const divPerBar = beatsPerBar * divPerBeat;
@@ -232,7 +286,7 @@ const Renderer = (() => {
     const gapStaves = 46;
     const bassTop = trebleH + gapStaves;
     const systemH = grand ? bassTop + 4 * SP : trebleH;
-    const rowGap = systemH + 92;
+    const rowGap = systemH + 92 + (lyrics ? 20 : 0);
     const nRows = Math.ceil(totalBars / barsPerRow);
     const W = LEFT + barsPerRow * barW + 16;
     const H = TOP + nRows * rowGap + 20;
@@ -281,14 +335,26 @@ const Renderer = (() => {
         el('line', { x1: x, y1: y0, x2: x, y2: y0 + (grand ? bassTop + 4 * SP : trebleH), class: 'staff-barline' }, svg);
         if (b < rowBars) txt(svg, x + 4, y0 - 26, String(row * barsPerRow + b + 1), 'bar-number', 'start');
       }
-      // コードネーム
+      // コードネーム: 各小節の頭に鳴っているコードを必ず表示 + 小節途中の変化点にも表示
       if (chords) {
-        for (const c of chords) {
-          const bar = Math.floor(c.startBeat / beatsPerBar);
-          if (bar < row * barsPerRow || bar >= row * barsPerRow + rowBars) continue;
-          const beatInRow = c.startBeat - row * barsPerRow * beatsPerBar;
+        const drawn = new Set();
+        const drawLabel = (beat, label) => {
+          const key = Math.round(beat * 4);
+          if (drawn.has(key)) return;
+          drawn.add(key);
+          const beatInRow = beat - row * barsPerRow * beatsPerBar;
           const x = LEFT + (beatInRow / beatsPerBar) * barW + 4;
-          txt(svg, x, y0 - 12, c.label, 'staff-chord-name', 'start');
+          txt(svg, x, y0 - 12, label, 'staff-chord-name', 'start');
+        };
+        for (let b = row * barsPerRow; b < row * barsPerRow + rowBars; b++) {
+          const beat = b * beatsPerBar;
+          const c = chords.find(c => c.startBeat <= beat + 0.01 && c.endBeat > beat + 0.01);
+          if (c) drawLabel(beat, c.label);
+        }
+        for (const c of chords) {
+          const bar = Math.floor(c.startBeat / beatsPerBar + 1e-6);
+          if (bar < row * barsPerRow || bar >= row * barsPerRow + rowBars) continue;
+          drawLabel(c.startBeat, c.label);
         }
       }
       // 音符 (ラベルは列ごとにまとめて重なりを回避)
@@ -353,8 +419,26 @@ const Renderer = (() => {
         if (!labelCols.has(key)) labelCols.set(key, { x, labels: [] });
         labelCols.get(key).labels.push({ pitch: n.pitch, label: Theory.doremi(n.pitch % 12, useFlat) });
       }
+      // 歌詞: 該当する拍位置に文字を割り付けて譜面の直下に表示
+      const staffBottom = grand ? y0 + bassTop + 4 * SP : y0 + trebleH;
+      if (lyrics) {
+        const lyricY = staffBottom + 16;
+        for (const line of lyrics) {
+          if (line.blank || !line.text) continue;
+          const charsArr = [...line.text];
+          const span = line.endBeat - line.startBeat;
+          charsArr.forEach((ch, i) => {
+            const beat = line.startBeat + (i + 0.5) / charsArr.length * span;
+            const bar = Math.floor(beat / beatsPerBar);
+            if (bar < row * barsPerRow || bar >= row * barsPerRow + rowBars) return;
+            const beatInRow = beat - row * barsPerRow * beatsPerBar;
+            const x = LEFT + (beatInRow / beatsPerBar) * barW + 12;
+            txt(svg, x, lyricY, ch, 'score-lyric');
+          });
+        }
+      }
       // ドレミラベル描画: 同じ拍の音は下方向へ積む(低い音が上)
-      const labelBaseY = (grand ? y0 + bassTop + 4 * SP : y0 + trebleH) + 18;
+      const labelBaseY = staffBottom + (lyrics ? 34 : 18);
       for (const col of labelCols.values()) {
         col.labels.sort((a, b) => a.pitch - b.pitch);
         col.labels.forEach((L, i) => {
@@ -422,7 +506,7 @@ const Renderer = (() => {
         chip.dataset.endSec = c.endSec !== undefined ? c.endSec : '';
         const name = document.createElement('span');
         name.className = 'chord-chip-name';
-        name.textContent = c._cont ? '%' : c.label; // % = 前小節と同じ(リピート記号)
+        name.textContent = c.label; // 継続小節も薄い色でコード名を表示(小節頭で常に確認できるように)
         chip.appendChild(name);
         if (showDegree && !c._cont && c.degree) {
           const deg = document.createElement('span');

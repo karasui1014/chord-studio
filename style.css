@@ -316,6 +316,9 @@ main { max-width: 1080px; margin: 0 auto; padding: 0 20px 60px; }
 .tab-num { fill: var(--paper-ink); font-size: 12px; font-weight: 700; font-family: ui-monospace, monospace; }
 .tab-num-bg { fill: var(--paper); }
 .strum-mark { fill: none; stroke: #8b5cf6; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.rhythm-stem { stroke: var(--paper-ink); stroke-width: 1.3; }
+.rhythm-flag { fill: none; stroke: var(--paper-ink); stroke-width: 1.4; }
+.score-lyric { fill: #1d2430; font-size: 12.5px; font-family: inherit; }
 
 /* 五線譜 */
 .staff-line { stroke: #8b93a1; stroke-width: 1; }

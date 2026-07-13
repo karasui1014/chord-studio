@@ -428,8 +428,11 @@ const Transcriber = (() => {
     const ppq = 480;
     const notes = [];
     for (const n of rawNotes) {
-      const beat = Math.max(0, grid.secToBeat(n.startSec));
-      const durBeat = Math.max(0.2, grid.secToBeat(n.startSec + n.durSec) - beat);
+      // 読みやすさ優先: 8分音符グリッドにクオンタイズ(4分・8分中心の譜面になる)
+      let beat = Math.max(0, grid.secToBeat(n.startSec));
+      beat = Math.round(beat * 2) / 2;
+      const rawEnd = grid.secToBeat(n.startSec + n.durSec);
+      const durBeat = Math.max(0.5, Math.round((rawEnd - beat) * 2) / 2);
       notes.push({
         tick: Math.round(beat * ppq),
         durTick: Math.max(1, Math.round(durBeat * ppq)),

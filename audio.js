@@ -121,7 +121,7 @@ const AudioAnalyzer = (() => {
     const frameDur = hop / sr;
 
     /* ---------- BPM & ビート推定 ---------- */
-    const { bpm, beatTimes } = estimateBeats(flux, frameDur, duration);
+    let { bpm, beatTimes } = estimateBeats(flux, frameDur, duration);
 
     /* ---------- ビート単位のクロマ → Viterbi コード列 ---------- */
     const beatChroma = [];
@@ -206,6 +206,35 @@ const AudioAnalyzer = (() => {
     for (const c of cleaned) {
       c.label = Theory.chordLabel(c.root, c.suffix, key, null);
       c.degree = Theory.degreeName(c.root, c.suffix, key);
+    }
+
+    /* ---------- 小節頭(1拍目)の推定 ----------
+     * ビート格子のどの拍が小節の頭かは自動では決まらないため、
+     * 「コードチェンジが最も多く乗る拍」を1拍目とみなして格子をずらす。
+     * これでコードが小節の頭に揃い、小節番号も演奏と一致しやすくなる。 */
+    const changeCnt = [0, 0, 0, 0];
+    for (const c of cleaned) changeCnt[((c.startBeat % 4) + 4) % 4]++;
+    let kShift = 0;
+    for (let i = 1; i < 4; i++) if (changeCnt[i] > changeCnt[kShift]) kShift = i;
+    // 明確な多数決のときだけシフト(誤検出で先頭小節を失わないための保険)
+    const totalChanges = changeCnt.reduce((a, b) => a + b, 0);
+    if (kShift > 0 &&
+        !(changeCnt[kShift] >= changeCnt[0] * 1.5 && changeCnt[kShift] >= totalChanges * 0.4)) {
+      kShift = 0;
+    }
+    if (kShift > 0 && beatTimes.length > kShift + 4) {
+      beatTimes = beatTimes.slice(kShift);
+      const adjusted = [];
+      for (const c of cleaned) {
+        const e = c.endBeat - kShift;
+        if (e <= 0) continue;
+        c.startBeat = Math.max(0, c.startBeat - kShift);
+        c.endBeat = e;
+        if (c.startBeat === 0) c.startSec = beatTimes[0];
+        adjusted.push(c);
+      }
+      cleaned.length = 0;
+      cleaned.push(...adjusted);
     }
 
     if (progressCb) progressCb(1);

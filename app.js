@@ -712,6 +712,14 @@
     renderChordPanel();
     renderGuitarPanel();
     renderLyricsPanel();
+    renderBassPanel();
+    renderKeysPanel();
+  }
+
+  function refreshScorePanels() {
+    renderGuitarPanel();
+    renderBassPanel();
+    renderKeysPanel();
   }
 
   // かんたんコード: オープンコードが最も多くなるカポ位置を自動提案
@@ -859,6 +867,7 @@
         L.lines = lines;
         L.editing = false;
         renderLyricsPanel();
+        refreshScorePanels(); // 譜面内の歌詞表示にも反映
       });
       wrap.appendChild(p);
       wrap.appendChild(ta);
@@ -883,6 +892,7 @@
     startInput.addEventListener('change', () => {
       L.startBar = Math.max(1, Math.min(m.totalBars, Math.round(+startInput.value || 1)));
       renderLyricsPanel();
+      refreshScorePanels();
     });
     startLabel.appendChild(startInput);
     bar.appendChild(startLabel);
@@ -901,6 +911,7 @@
     strideSel.addEventListener('change', () => {
       L.barsPerLine = strideSel.value === 'auto' ? 'auto' : +strideSel.value;
       renderLyricsPanel();
+      refreshScorePanels();
     });
     strideLabel.appendChild(strideSel);
     bar.appendChild(strideLabel);
@@ -1017,6 +1028,41 @@
     return state.tabFlip ? [...base].reverse() : base;
   }
 
+  // 譜面に埋め込む歌詞レイアウト(セットされていなければnull)
+  function lyricsForScores() {
+    if (!state.lyrics.lines.length) return null;
+    const layout = computeLyricsLayout().filter(l => !l.blank);
+    return layout.length ? layout : null;
+  }
+
+  // ステム採譜のギター用: コードの押さえ方(フレット)を小節頭・コード変化点に置くイベント列
+  // (音源からの細かい単音採譜はノイズが多いため、コード弾き主体の見やすい譜面にする)
+  function chordShapeEvents(m) {
+    const shift = displayShift();
+    const useFlat = Theory.keyUsesFlat(displayedKey() || state.key);
+    const evs = [];
+    for (const c of state.chords) {
+      const root = ((c.root + shift) % 12 + 12) % 12;
+      const shape = Theory.guitarShape(root, c.suffix, useFlat);
+      if (!shape) continue;
+      const positions = new Set([c.startBeat]);
+      for (let b = Math.floor(c.startBeat / m.beatsPerBar) + 1; b * m.beatsPerBar < c.endBeat - 0.01; b++) {
+        positions.add(b * m.beatsPerBar);
+      }
+      for (const beat of positions) {
+        evs.push({
+          time: beat,
+          dur: Math.min(m.beatsPerBar, c.endBeat - beat),
+          notes: shape.frets
+            .map((f, i) => (f >= 0 ? { string: i, fret: f } : null))
+            .filter(Boolean),
+        });
+      }
+    }
+    evs.sort((a, b) => a.time - b.time);
+    return evs;
+  }
+
   // TAB上下反転トグル + 凡例
   function tabControls() {
     const bar = document.createElement('div');
@@ -1064,17 +1110,28 @@
       // 使用コードのダイアグラム(カポ適用後の押さえるフォーム)
       sec.appendChild(Renderer.usedChordStrip(state.chords, state.key, displayShift()));
 
-      const events = notesToEvents(tr.notes);
-      const assigned = attachArtics(Theory.assignFrets(events, Theory.GUITAR_TUNING), events);
+      // ステム採譜: 細かい単音採譜はノイズが多いので、コードの押さえ方+ストロークの
+      // 「コード弾き譜」にする。MIDI読み込み時は正確なので実際の音をTAB化する。
+      const isStems = state.song && state.song.kind === 'stems';
       const names = tabStringNames(['e', 'B', 'G', 'D', 'A', 'E']);
+      let assigned;
+      if (isStems) {
+        assigned = chordShapeEvents(m);
+      } else {
+        const events = notesToEvents(tr.notes);
+        assigned = attachArtics(Theory.assignFrets(events, Theory.GUITAR_TUNING), events);
+      }
       const svg = Renderer.tabSVG(assigned, {
         strings: 6, stringNames: names, flip: state.tabFlip, tuning: Theory.GUITAR_TUNING,
-        beatsPerBar: m.beatsPerBar, totalBars: m.totalBars, chords: state.chords, showStrum: true,
+        beatsPerBar: m.beatsPerBar, totalBars: m.totalBars, chords: displayedChords(),
+        showStrum: true, strumFill: isStems, lyrics: lyricsForScores(),
       });
       sec.appendChild(tabControls());
       const strumNote = document.createElement('p');
       strumNote.className = 'hint';
-      strumNote.textContent = '⊓ =ダウン / V =アップ。8分音符ベースの一般的な弾き方の目安です(音源から実際のピック方向を検出したものではありません)。';
+      strumNote.textContent = isStems
+        ? 'コードの押さえ方(フレット)を小節頭とコード変化点に表示しています。⊓=ダウン / V=アップは8分音符ベースの一般的なストローク目安です(実際のピック方向の検出ではありません)。'
+        : '⊓=ダウン / V=アップ。8分音符ベースの一般的な弾き方の目安です(音源から実際のピック方向を検出したものではありません)。';
       sec.appendChild(strumNote);
       const wrap = document.createElement('div');
       wrap.className = 'score-scroll';
@@ -1115,9 +1172,14 @@
       const names = tabStringNames(['G', 'D', 'A', 'E']);
       const svg = Renderer.tabSVG(assigned, {
         strings: 4, stringNames: names, flip: state.tabFlip, tuning: Theory.BASS_TUNING,
-        beatsPerBar: m.beatsPerBar, totalBars: m.totalBars, chords: state.chords,
+        beatsPerBar: m.beatsPerBar, totalBars: m.totalBars, chords: displayedChords(),
+        rhythm: true, lyrics: lyricsForScores(),
       });
       sec.appendChild(tabControls());
+      const rhythmNote = document.createElement('p');
+      rhythmNote.className = 'hint';
+      rhythmNote.textContent = '数字の下の棒=リズム(棒のみ=4分音符 / 旗1つ=8分音符 / 旗2つ=16分音符 / 棒なし=長い音)。';
+      sec.appendChild(rhythmNote);
       const wrap = document.createElement('div');
       wrap.className = 'score-scroll';
       wrap.appendChild(svg);
@@ -1156,8 +1218,9 @@
       sec.innerHTML = `<h3 class="inst-title">${isMelody ? '🎤' : '🎹'} ${escapeHtml(tr.name)}</h3>`;
       const notes = tr.notes.map(n => ({ beat: n.beat, durBeat: n.durBeat, pitch: n.pitch }));
       const svg = Renderer.staffSVG(notes, {
-        beatsPerBar: m.beatsPerBar, totalBars: m.totalBars, chords: state.chords,
+        beatsPerBar: m.beatsPerBar, totalBars: m.totalBars, chords: displayedChords(),
         useFlat, grand: !isMelody || notes.some(n => n.pitch < 55),
+        lyrics: lyricsForScores(),
       });
       const wrap = document.createElement('div');
       wrap.className = 'score-scroll';
@@ -1251,8 +1314,13 @@
     }
     if (state.activeSource === 'midi') {
       for (const tr of tracksByRole('guitar')) {
-        const events = notesToEvents(tr.notes);
-        const assigned = attachArtics(Theory.assignFrets(events, Theory.GUITAR_TUNING), events);
+        let assigned;
+        if (state.song && state.song.kind === 'stems') {
+          assigned = chordShapeEvents(m);
+        } else {
+          const events = notesToEvents(tr.notes);
+          assigned = attachArtics(Theory.assignFrets(events, Theory.GUITAR_TUNING), events);
+        }
         parts.push(Exporter.textTab(assigned, {
           ...m, strings: 6, stringNames: tabStringNames(['e', 'B', 'G', 'D', 'A', 'E']),
           flip: state.tabFlip, tuning: Theory.GUITAR_TUNING,
