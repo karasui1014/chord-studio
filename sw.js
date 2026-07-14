@@ -1,7 +1,7 @@
 /* Service Worker — オフライン対応 */
 'use strict';
 
-const CACHE = 'chord-studio-v9';
+const CACHE = 'chord-studio-v10';
 const ASSETS = [
   './',
   './index.html',

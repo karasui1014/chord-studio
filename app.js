@@ -42,7 +42,6 @@
   /* ==================== 初期化 ==================== */
   document.addEventListener('DOMContentLoaded', () => {
     setupUploaders();
-    $('#btnDemo').addEventListener('click', loadDemo);
     $$('.tab-btn').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
     $('#btnTransposeDown').addEventListener('click', () => { state.transpose--; renderShiftViews(); });
     $('#btnTransposeUp').addEventListener('click', () => { state.transpose++; renderShiftViews(); });
@@ -317,64 +316,6 @@
     state.activeSource = 'midi';
     state.chords = chords;
     state.key = key;
-  }
-
-  /* ==================== デモデータ ==================== */
-  function loadDemo() {
-    stopAllPlayback();
-    resetLyrics();
-    state.title = 'デモ楽曲 (C-G-Am-F)';
-    const ppq = 480, bpm = 92;
-    const spb = 60 / bpm;
-    const mk = (beat, durBeat, pitch, vel) => ({
-      tick: Math.round(beat * ppq), durTick: Math.round(durBeat * ppq),
-      pitch, vel: vel || 92, ch: 0, beat, durBeat,
-    });
-    const PROG = [
-      [48, [48, 55, 60, 64]], [43, [43, 55, 59, 62]], [45, [45, 57, 60, 64]], [41, [41, 53, 57, 60]],
-      [48, [48, 55, 60, 64]], [43, [43, 55, 59, 62]], [41, [41, 53, 57, 60]], [43, [43, 55, 59, 62]],
-    ];
-    const gtr = [], bass = [], piano = [], melody = [];
-    const MELO = [64, 62, 60, 62, 64, 64, 64, null, 62, 62, 62, null, 64, 67, 67, null,
-                  64, 62, 60, 62, 64, 64, 64, 64, 62, 62, 64, 62, 60, null, null, null];
-    for (let bar = 0; bar < 8; bar++) {
-      const [root, tones] = PROG[bar];
-      // ギター: 8分ストローク(1・3拍目コード、2・4拍目アルペジオ風)
-      for (let b = 0; b < 4; b++) {
-        if (b % 2 === 0) {
-          for (const t of tones) gtr.push(mk(bar * 4 + b, 0.9, t, 84));
-        } else {
-          gtr.push(mk(bar * 4 + b, 0.45, tones[1], 72));
-          gtr.push(mk(bar * 4 + b + 0.5, 0.45, tones[2], 72));
-        }
-      }
-      // ベース: ルート4分 + 5度
-      bass.push(mk(bar * 4 + 0, 1.4, root - 12, 100));
-      bass.push(mk(bar * 4 + 1.5, 0.4, root - 12, 78));
-      bass.push(mk(bar * 4 + 2, 1.4, root - 5, 92));
-      bass.push(mk(bar * 4 + 3, 0.9, root - 12, 88));
-      // ピアノ: 白玉コード
-      for (const t of tones.slice(1)) piano.push(mk(bar * 4, 3.8, t + 12, 66));
-      // メロディ
-      for (let i = 0; i < 4; i++) {
-        const m = MELO[bar * 4 + i];
-        if (m !== null && m !== undefined) melody.push(mk(bar * 4 + i, 0.9, m + 12, 96));
-      }
-    }
-    const song = {
-      source: 'midi', ppq, bpm,
-      timeSig: { num: 4, den: 4 }, beatsPerBar: 4, totalBars: 8,
-      tracks: [
-        { name: 'アコースティックギター', notes: gtr, role: 'guitar', channels: [0] },
-        { name: 'エレキベース', notes: bass, role: 'bass', channels: [1] },
-        { name: 'ピアノ', notes: piano, role: 'keys', channels: [2] },
-        { name: 'リードメロディ', notes: melody, role: 'melody', channels: [3] },
-      ],
-      tickToSec: t => (t / ppq) * spb,
-    };
-    state.song = song;
-    reanalyzeMidi();
-    renderResults();
   }
 
   /* ==================== プログレス ==================== */
