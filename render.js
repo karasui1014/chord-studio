@@ -60,9 +60,11 @@ const Renderer = (() => {
         const y = gridY + (relF + 0.5) * fretH;
         const x1 = gridX + barre.from * strW;
         el('rect', { x: x1 - 6, y: y - 5.5, width: (5 - barre.from) * strW + 12, height: 11, rx: 5.5, class: 'cd-barre' }, svg);
+        if (shape.fingers) txt(svg, x1 + ((5 - barre.from) * strW) / 2, y + 3, '1', 'cd-finger');
       }
     }
-    // ドット / 開放 / ミュート
+    // ドット / 開放 / ミュート (+推奨指番号)
+    const fingers = shape.fingers || null;
     for (let i = 0; i < 6; i++) { // i=0 が6弦(左端)
       const x = gridX + i * strW;
       const f = frets[i];
@@ -76,6 +78,7 @@ const Renderer = (() => {
           const y = gridY + (relF + 0.5) * fretH;
           if (!(barre && f === barre.fret && i >= barre.from)) {
             el('circle', { cx: x, cy: y, r: 6.2, class: 'cd-dot' }, svg);
+            if (fingers && fingers[i] > 0) txt(svg, x, y + 3, String(fingers[i]), 'cd-finger');
           }
         }
       }

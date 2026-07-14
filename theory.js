@@ -210,6 +210,56 @@ const Theory = (() => {
     'E7sus4': [0, 2, 0, 2, 0, 0],
   };
 
+  // 代表的なオープンコードの推奨指番号 (6弦→1弦、0=開放/ミュート)
+  const FINGERS = {
+    'C':      [0, 3, 2, 0, 1, 0],
+    'A':      [0, 0, 1, 2, 3, 0],
+    'G':      [2, 1, 0, 0, 0, 3],
+    'E':      [0, 2, 3, 1, 0, 0],
+    'D':      [0, 0, 0, 1, 3, 2],
+    'F':      [1, 3, 4, 2, 1, 1],
+    'Am':     [0, 0, 2, 3, 1, 0],
+    'Em':     [0, 2, 3, 0, 0, 0],
+    'Dm':     [0, 0, 0, 2, 3, 1],
+    'A7':     [0, 0, 2, 0, 3, 0],
+    'B7':     [0, 2, 1, 3, 0, 4],
+    'C7':     [0, 3, 2, 4, 1, 0],
+    'D7':     [0, 0, 0, 2, 1, 3],
+    'E7':     [0, 2, 0, 1, 0, 0],
+    'G7':     [3, 2, 0, 0, 0, 1],
+    'Am7':    [0, 0, 2, 0, 1, 0],
+    'Em7':    [0, 2, 0, 0, 0, 0],
+    'Dm7':    [0, 0, 0, 2, 1, 1],
+    'CM7':    [0, 3, 2, 0, 0, 0],
+    'AM7':    [0, 0, 2, 1, 3, 0],
+    'GM7':    [3, 2, 0, 0, 0, 1],
+    'EM7':    [0, 2, 3, 1, 0, 0],
+    'DM7':    [0, 0, 0, 1, 2, 3],
+    'FM7':    [0, 0, 3, 2, 1, 0],
+    'Asus4':  [0, 0, 1, 2, 3, 0],
+    'Dsus4':  [0, 0, 0, 1, 3, 4],
+    'Esus4':  [0, 2, 3, 4, 0, 0],
+    'Cadd9':  [0, 3, 2, 0, 4, 0],
+    'Gadd9':  [2, 0, 0, 1, 0, 3],
+  };
+
+  // 指番号のヒューリスティック(辞書にないフォーム用):
+  // バレー弦は1、残りはフレットの低い順に2,3,4を割り当てる
+  function guessFingers(frets, barre) {
+    const fingers = [0, 0, 0, 0, 0, 0];
+    const rest = [];
+    for (let i = 0; i < 6; i++) {
+      const f = frets[i];
+      if (f <= 0) continue;
+      if (barre && f === barre.fret && i >= barre.from) fingers[i] = 1;
+      else rest.push({ i, f });
+    }
+    rest.sort((a, b) => a.f - b.f || a.i - b.i);
+    let next = barre ? 2 : 1;
+    for (const r of rest) fingers[r.i] = Math.min(4, next++);
+    return fingers;
+  }
+
   // ムーバブルフォーム: rootString 6 or 5(そのフレットがルート)
   // rel: バレーフレットからの相対。-1 = ミュート
   const MOVABLE_SHAPES = {
@@ -250,7 +300,11 @@ const Theory = (() => {
     const nameS = NOTE_SHARP[rootPc] + suffix;
     const nameF = NOTE_FLAT[rootPc] + suffix;
     const open = OPEN_SHAPES[nameS] || OPEN_SHAPES[nameF];
-    if (open) return normalizeShape(open);
+    if (open) {
+      const shape = normalizeShape(open);
+      shape.fingers = FINGERS[nameS] || FINGERS[nameF] || guessFingers(shape.frets, shape.barre);
+      return shape;
+    }
     const forms = MOVABLE_SHAPES[suffix] || MOVABLE_SHAPES[''];
     let best = null;
     for (const f of forms) {
@@ -261,6 +315,7 @@ const Theory = (() => {
       const cand = normalizeShape(frets);
       if (!best || cand.baseFret < best.baseFret) best = cand;
     }
+    if (best) best.fingers = guessFingers(best.frets, best.barre);
     return best;
   }
 

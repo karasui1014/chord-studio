@@ -26,8 +26,81 @@
 
 <main>
 
+  <!-- モード切替 -->
+  <nav class="mode-nav" aria-label="モード切替">
+    <button class="mode-btn active" data-mode="studio">🎛 フル解析スタジオ</button>
+    <button class="mode-btn" data-mode="gtab">🎸 ギターコードTAB</button>
+  </nav>
+
+  <!-- ギターコードTAB (かんたん解析モード) -->
+  <section id="gtabSection" class="gtab-section">
+    <h2 class="section-title">🎸 ギターコードTAB</h2>
+    <p class="hint">Sunoなどでステム分離した<strong>「Guitar」音源</strong>を推奨(MP3 / M4A / WAV対応)。曲のコード進行と押さえやすいコードフォームを自動生成します。解析はすべてブラウザ内・外部送信なし。</p>
+
+    <label class="upload-card gtab-upload" id="gtabCard">
+      <input type="file" id="gtabAudio" accept="audio/*,.mp3,.m4a,.wav" hidden>
+      <span class="upload-icon">🎸</span>
+      <span class="upload-title">ギター音源を選ぶ</span>
+      <span class="upload-desc">Suno分離済みのGuitarステム推奨 (MP3 / M4A / WAV)</span>
+      <span class="upload-cta">クリック or ドラッグ&ドロップ</span>
+      <span class="upload-status" id="gtabFileName"></span>
+    </label>
+
+    <div class="gtab-settings">
+      <label class="ly-ctrl">ギター種別
+        <select id="gtabGuitarType" class="ctrl-select">
+          <option value="electric">エレキ</option>
+          <option value="acoustic">アコギ</option>
+        </select>
+      </label>
+      <span class="ly-ctrl">チューニング: 標準 (E A D G B E)</span>
+      <label class="ly-ctrl">BPM
+        <select id="gtabBpmMode" class="ctrl-select">
+          <option value="auto">自動</option>
+          <option value="manual">手動</option>
+        </select>
+        <input type="number" id="gtabBpmValue" value="120" min="40" max="240" disabled>
+      </label>
+      <label class="ly-ctrl">拍子
+        <select id="gtabTimeSig" class="ctrl-select">
+          <option value="4/4">4/4</option>
+          <option value="3/4">3/4</option>
+        </select>
+      </label>
+      <label class="ly-ctrl">難易度
+        <select id="gtabDifficulty" class="ctrl-select">
+          <option value="original">原曲寄り</option>
+          <option value="easy">やさしい</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="analyze-bar">
+      <button class="btn btn-primary btn-analyze" id="gtabAnalyze" disabled>🔍 コードを解析する</button>
+      <label class="btn">📂 保存したJSONを読み込む<input type="file" id="gtabImport" accept=".json,application/json" hidden></label>
+    </div>
+
+    <div id="gtabProgress" class="progress-section" hidden>
+      <p>解析中… (端末内で処理・アップロードはしていません)</p>
+      <div class="progress-track"><div class="progress-bar" id="gtabProgressBar"></div></div>
+    </div>
+
+    <div id="gtabResult" hidden>
+      <p class="summary-bar" id="gtabMeta"></p>
+      <div class="playback-area" id="gtabPlayer"></div>
+      <p class="hint">⚠️ 自動解析の結果は<strong>編集できる下書き</strong>です。コード名をクリックすると変更・分割・結合・削除できます。解析が難しい音源では、コード候補を確認して修正してください。</p>
+      <div class="used-chords" id="gtabDiagrams"></div>
+      <div id="gtabGrid"></div>
+      <div id="gtabEditor" class="gtab-editor" hidden></div>
+      <div class="export-bar">
+        <button class="btn btn-primary" id="gtabPrint">🖨 印刷 / PDF保存</button>
+        <button class="btn" id="gtabSaveJson">💾 JSONで保存</button>
+      </div>
+    </div>
+  </section>
+
   <!-- アップロード -->
-  <section class="upload-section" aria-label="ファイル読み込み">
+  <section class="upload-section mode-studio" aria-label="ファイル読み込み">
     <div class="upload-grid">
       <label class="upload-card" id="audioCard">
         <input type="file" id="audioInput" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac" hidden>
@@ -61,13 +134,13 @@
   </section>
 
   <!-- プログレス -->
-  <section id="progressSection" class="progress-section" hidden>
+  <section id="progressSection" class="progress-section mode-studio" hidden>
     <p id="progressMsg">解析中…</p>
     <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
   </section>
 
   <!-- 結果 -->
-  <section id="resultsSection" class="results-section" hidden>
+  <section id="resultsSection" class="results-section mode-studio" hidden>
     <div class="summary-bar" id="summaryBar"></div>
     <div class="playback-area" id="playbackArea"></div>
 
@@ -162,5 +235,6 @@
 <script src="render.js"></script>
 <script src="export.js"></script>
 <script src="app.js"></script>
+<script src="guitartab.js"></script>
 </body>
 </html>
