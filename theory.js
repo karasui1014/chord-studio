@@ -27,9 +27,11 @@ const Theory = (() => {
     { suffix: 'mM7',   intervals: [0, 3, 7, 11],    bonus: 0.000 },
     { suffix: '6',     intervals: [0, 4, 7, 9],     bonus: 0.000 },
     { suffix: 'm6',    intervals: [0, 3, 7, 9],     bonus: 0.000 },
-    { suffix: 'sus4',  intervals: [0, 5, 7],        bonus: 0.004 },
-    { suffix: 'sus2',  intervals: [0, 2, 7],        bonus: 0.002 },
-    { suffix: '7sus4', intervals: [0, 5, 7, 10],    bonus: 0.000 },
+    // sus系は3度を欠く分、倍音列の自然な「3度上」の微弱な紛れ込み(5倍音)で
+    // メジャー/マイナーとの僅差負けが起きやすいため、他より高めのボーナスで補正する
+    { suffix: 'sus4',  intervals: [0, 5, 7],        bonus: 0.020 },
+    { suffix: 'sus2',  intervals: [0, 2, 7],        bonus: 0.016 },
+    { suffix: '7sus4', intervals: [0, 5, 7, 10],    bonus: 0.010 },
     { suffix: 'add9',  intervals: [0, 4, 7, 2],     bonus: 0.000 },
     { suffix: 'dim',   intervals: [0, 3, 6],        bonus: 0.000 },
     { suffix: 'm7-5',  intervals: [0, 3, 6, 10],    bonus: 0.000 },
@@ -132,8 +134,10 @@ const Theory = (() => {
         }
       }
     }
-    // 僅差ならシンプルなトライアド表記を優先(コード表として読みやすく)
-    if (best && best.suffix !== '' && best.suffix !== 'm') {
+    // 僅差ならシンプルなトライアド表記を優先(コード表として読みやすく)。
+    // ただしsus系(3度を含まない)は3度の有無そのものが別コードなので対象外にする
+    const hasThird = best && (best.intervals.includes(3) || best.intervals.includes(4));
+    if (best && best.suffix !== '' && best.suffix !== 'm' && hasThird) {
       const isMinorish = best.intervals.includes(3);
       const triad = CHORD_TYPES.find(ct => ct.suffix === (isMinorish ? 'm' : ''));
       let tScore = 0;
