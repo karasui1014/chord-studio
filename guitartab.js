@@ -45,7 +45,7 @@
     file: null, audioBuffer: null, audioUrl: null,
     refFile: null, refBuffer: null, refUrl: null, refOffset: 0,
     bpm: 120, beatsPerBar: 4, slotBeats: 1,
-    segs: [],           // {start,end,bar,beat,name,candidates,confidence,edited,isSilent,primaryChroma,referenceChroma}
+    segs: [],           // {start,end,bar,beat,name,candidates,confidence,edited,isSilent}
     selected: -1,
     capoSuggested: 0, capoMode: false, capo: 0,
     playRAF: null,
@@ -263,7 +263,7 @@
           start: i * slotDur, end: Math.min(st.audioBuffer.duration, (i + 1) * slotDur),
           bar: Math.floor(i * st.slotBeats / st.beatsPerBar) + 1,
           beat: (i * st.slotBeats) % st.beatsPerBar + 1,
-          candidates, primaryChroma: primary, referenceChroma: reference, isSilent, edited: false,
+          candidates, isSilent, edited: false,
         };
       });
       st.segs = smoothSequence(rawSegs);
@@ -426,21 +426,18 @@
     return combined.slice(0, topN).map(c => ({ ...c, confidence }));
   }
 
-  /* ==================== 時間方向の平滑化 (元曲があれば照合を考慮) ==================== */
-  function cosineSim(a, b) {
-    let dot = 0, na = 0, nb = 0;
-    for (let i = 0; i < 12; i++) { dot += a[i] * b[i]; na += a[i] ** 2; nb += b[i] ** 2; }
-    return (na < 1e-8 || nb < 1e-8) ? 0 : clamp(dot / Math.sqrt(na * nb), 0, 1);
-  }
-  function referenceSimilarity(prev, cur) {
-    const s = cosineSim(prev.primaryChroma, cur.primaryChroma);
-    if (!prev.referenceChroma || !cur.referenceChroma) return s;
-    const sr = cosineSim(prev.referenceChroma, cur.referenceChroma);
-    return clamp(s * 0.72 + sr * 0.28, 0, 1);
-  }
-  function transitionCost(prevName, curName, refSim) {
+  /* ==================== 時間方向の平滑化 ==================== */
+  // 音楽理論に基づく遷移コスト: 同じコードが続く方を優遇し、
+  // ルートが同じままテンションだけ揺れる(例: Am⇔Am7)場合も変化コストを抑える。
+  // これにより細かい解像度でも、実際は伸ばしている1つのコードが
+  // ノイズで別名に揺れて点滅するのを防ぐ。
+  function transitionCost(prevName, curName) {
     if (prevName === 'N.C.' || curName === 'N.C.') return 0;
-    return prevName === curName ? 0.07 - refSim * 0.48 : -0.035 + refSim * 0.34;
+    if (prevName === curName) return 0.05;
+    const prevRoot = parseChordName(prevName)?.rootPc;
+    const curRoot = parseChordName(curName)?.rootPc;
+    if (prevRoot !== undefined && prevRoot === curRoot) return 0.02;
+    return -0.02;
   }
 
   function smoothSequence(segs) {
@@ -450,12 +447,11 @@
     for (let t = 0; t < opts.length; t++) {
       score[t] = new Array(opts[t].length).fill(-Infinity);
       back[t] = new Array(opts[t].length).fill(-1);
-      const refSim = t ? referenceSimilarity(segs[t - 1], segs[t]) : 0;
       opts[t].forEach((cand, ci) => {
         const emis = cand.score * 1.55;
         if (t === 0) { score[t][ci] = emis; return; }
         opts[t - 1].forEach((prevCand, pi) => {
-          const s = score[t - 1][pi] + emis + transitionCost(prevCand.name, cand.name, refSim);
+          const s = score[t - 1][pi] + emis + transitionCost(prevCand.name, cand.name);
           if (s > score[t][ci]) { score[t][ci] = s; back[t][ci] = pi; }
         });
       });
@@ -495,15 +491,30 @@
     for (let i = 0; i < n; i++) diff[i] = Math.max(0, diff[i] - base * 0.55);
     const rate = sr / d;
     let best = 120, bestScore = -Infinity;
+    const scoreByBpm = new Map();
     for (let bpm = 60; bpm <= 190; bpm++) {
       const lag = Math.round(rate * 60 / bpm);
       let s = 0;
       for (let i = lag; i < n; i++) s += diff[i] * diff[i - lag];
       const pref = 1 - Math.min(0.12, Math.abs(bpm - 112) / 1100);
       s *= pref;
+      scoreByBpm.set(bpm, s);
       if (s > bestScore) { bestScore = s; best = bpm; }
     }
-    return best;
+    return foldTempo(best, bestScore, scoreByBpm);
+  }
+
+  // 検出テンポが実際の倍(または約1.5倍)になっていないか確認し、
+  // 半分テンポの方が有力ならそちらを採用する(2拍ハイハット等の誤検出対策)
+  function foldTempo(bpm, score, scoreByBpm) {
+    if (bpm >= 176) return Math.round(bpm / 2);
+    if (bpm < 150) return bpm;
+    const half = Math.round(bpm / 2);
+    const halfScore = Math.max(
+      scoreByBpm.get(half - 1) ?? -Infinity,
+      scoreByBpm.get(half) ?? -Infinity,
+      scoreByBpm.get(half + 1) ?? -Infinity);
+    return halfScore >= score * 0.62 ? half : bpm;
   }
 
   /* ==================== 元楽曲との時間ズレ検出 (相互相関) ==================== */
