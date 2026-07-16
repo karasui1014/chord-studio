@@ -32,10 +32,12 @@
     <button class="mode-btn" data-mode="gtab">🎸 ギターコードTAB</button>
   </nav>
 
-  <!-- ギターコードTAB (かんたん解析モード) -->
+  <!-- ギターコードTAB -->
   <section id="gtabSection" class="gtab-section">
     <h2 class="section-title">🎸 ギターコードTAB</h2>
-    <p class="hint">Sunoなどでステム分離した<strong>「Guitar」音源</strong>を推奨(MP3 / M4A / WAV対応)。曲のコード進行と押さえやすいコードフォームを自動生成します。解析はすべてブラウザ内・外部送信なし。</p>
+    <p class="hint">ギター音源を解析します。<strong>元の楽曲を追加すると</strong>テンポ・コード変化を照合して精度が上がります。解析はすべてブラウザ内・外部送信なし。</p>
+
+    <div id="gtabError" class="upload-notice" hidden></div>
 
     <label class="upload-card gtab-upload" id="gtabCard">
       <input type="file" id="gtabAudio" accept="audio/*,.mp3,.m4a,.wav" hidden>
@@ -45,15 +47,25 @@
       <span class="upload-cta">クリック or ドラッグ&ドロップ</span>
       <span class="upload-status" id="gtabFileName"></span>
     </label>
+    <canvas id="gtabWaveform" class="gtab-waveform" height="80"></canvas>
+
+    <div class="gtab-ref-upload">
+      <div class="gtab-ref-heading">
+        <strong>元の楽曲(照合用・任意)</strong>
+        <button class="btn btn-small" id="gtabRefRemove" hidden>× 削除</button>
+      </div>
+      <label class="upload-card gtab-upload gtab-ref-card" id="gtabRefCard">
+        <input type="file" id="gtabRefAudio" accept="audio/*,.mp3,.m4a,.wav" hidden>
+        <span class="upload-icon">♫</span>
+        <span class="upload-title">元の楽曲ファイルを選ぶ</span>
+        <span class="upload-desc">追加するとテンポ・コード変化・低音を照合します</span>
+        <span class="upload-cta">クリック or ドラッグ&ドロップ</span>
+        <span class="upload-status" id="gtabRefName"></span>
+      </label>
+      <p class="hint" id="gtabRefStatus">ギター音源だけでも解析できます。</p>
+    </div>
 
     <div class="gtab-settings">
-      <label class="ly-ctrl">ギター種別
-        <select id="gtabGuitarType" class="ctrl-select">
-          <option value="electric">エレキ</option>
-          <option value="acoustic">アコギ</option>
-        </select>
-      </label>
-      <span class="ly-ctrl">チューニング: 標準 (E A D G B E)</span>
       <label class="ly-ctrl">BPM
         <select id="gtabBpmMode" class="ctrl-select">
           <option value="auto">自動</option>
@@ -63,16 +75,18 @@
       </label>
       <label class="ly-ctrl">拍子
         <select id="gtabTimeSig" class="ctrl-select">
-          <option value="4/4">4/4</option>
-          <option value="3/4">3/4</option>
+          <option value="4">4/4</option>
+          <option value="3">3/4</option>
         </select>
       </label>
-      <label class="ly-ctrl">難易度
-        <select id="gtabDifficulty" class="ctrl-select">
-          <option value="original">原曲寄り</option>
-          <option value="easy">やさしい</option>
+      <label class="ly-ctrl">コードの細かさ
+        <select id="gtabResolution" class="ctrl-select">
+          <option value="bar">1小節ごと(簡単)</option>
+          <option value="half">2拍ごと(軽量)</option>
+          <option value="beat" selected>1拍ごと(高精度)</option>
         </select>
       </label>
+      <span class="ly-ctrl">チューニング: 標準 (E A D G B E)</span>
     </div>
 
     <div class="analyze-bar">
@@ -81,17 +95,33 @@
     </div>
 
     <div id="gtabProgress" class="progress-section" hidden>
-      <p>解析中… (端末内で処理・アップロードはしていません)</p>
+      <p id="gtabProgressLabel">準備しています…</p>
       <div class="progress-track"><div class="progress-bar" id="gtabProgressBar"></div></div>
     </div>
 
     <div id="gtabResult" hidden>
-      <p class="summary-bar" id="gtabMeta"></p>
-      <div class="playback-area" id="gtabPlayer"></div>
-      <p class="hint">⚠️ 自動解析の結果は<strong>編集できる下書き</strong>です。コード名をクリックすると変更・分割・結合・削除できます。解析が難しい音源では、コード候補を確認して修正してください。</p>
-      <div class="used-chords" id="gtabDiagrams"></div>
-      <div id="gtabGrid"></div>
+      <div class="summary-bar" id="gtabMeta"></div>
+
+      <div class="gtab-form-heading">
+        <div><h3 class="section-title">コードフォーム譜</h3><p class="hint">1弦が上、6弦が下です。低いポジションを優先します。</p></div>
+        <button class="btn btn-small" id="gtabCapoToggle" hidden>カポで簡単コード</button>
+      </div>
+      <div id="gtabCapoNotice" class="capo-notice" hidden></div>
+
+      <p class="hint">⚠️ 自動解析の結果は<strong>編集できる下書き</strong>です。歪みの強いギター・アルペジオ・複雑なテンションでは誤判定があります。カードをクリックして修正してください。</p>
+
+      <div id="gtabFormScore"></div>
       <div id="gtabEditor" class="gtab-editor" hidden></div>
+
+      <div class="playback-strip">
+        <button id="gtabPlayToggle" class="round-play" type="button" aria-label="再生または一時停止">▶</button>
+        <div class="now-playing"><span id="gtabPlaySourceNote">再生音源: ギター音源</span><strong id="gtabNowChord">—</strong></div>
+        <div class="timeline-track" id="gtabTimeline"><div id="gtabTimelineFill"></div></div>
+        <span id="gtabPlaybackTime">0:00 / 0:00</span>
+        <span class="space-hint">Space 再生/停止</span>
+      </div>
+      <audio id="gtabAudioEl" hidden></audio>
+
       <div class="export-bar">
         <button class="btn btn-primary" id="gtabPrint">🖨 印刷 / PDF保存</button>
         <button class="btn" id="gtabSaveJson">💾 JSONで保存</button>

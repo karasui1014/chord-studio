@@ -104,6 +104,66 @@ const Renderer = (() => {
   }
 
   /* =========================================
+   * 1b. ギターコードダイアグラム(横向き / TAB譜と同じ向き)
+   * 1弦を上、6弦を下に描く。ギターコードTABモード専用。
+   * shape: { frets:[6弦..1弦], baseFret, barre, fingers }
+   * ======================================= */
+  function chordDiagramTab(label, shape) {
+    const W = 210, H = 140;
+    const svg = el('svg', {
+      viewBox: `0 0 ${W} ${H}`, class: 'chord-diagram-tab', role: 'img',
+      'aria-label': `${label}のコードフォーム。1弦が上、6弦が下`,
+    });
+    txt(svg, W / 2, 16, label, 'cd-label');
+    if (!shape) { txt(svg, W / 2, H / 2, '—', 'cd-fret-num'); return svg; }
+
+    const stringNames = ['e', 'B', 'G', 'D', 'A', 'E']; // 1弦(上)→6弦(下)
+    const LEFT = 40, TOP = 34, nFrets = 4, rowGap = 16;
+    const gridW = W - 60, fretW = gridW / nFrets;
+    const { frets, baseFret, barre, fingers } = shape;
+    const rows = [...frets].reverse(); // frets:[6..1] → [1..6](上から)
+
+    if (baseFret === 1) {
+      el('line', { x1: LEFT, y1: TOP - 3, x2: LEFT, y2: TOP + 5 * rowGap + 3, class: 'cd-nut-tab' }, svg);
+    } else {
+      txt(svg, LEFT - 18, TOP + 2 * rowGap + 4, baseFret + 'f', 'cd-fret-num', 'middle');
+    }
+    for (let row = 0; row < 6; row++) {
+      const y = TOP + row * rowGap;
+      el('line', { x1: LEFT, y1: y, x2: LEFT + gridW, y2: y, class: 'cd-line' }, svg);
+      txt(svg, LEFT - 26, y + 3, stringNames[row], 'cd-string-label', 'middle');
+    }
+    for (let f = 0; f <= nFrets; f++) {
+      const x = LEFT + f * fretW;
+      el('line', { x1: x, y1: TOP, x2: x, y2: TOP + 5 * rowGap, class: 'cd-line' }, svg);
+    }
+    if (barre) {
+      const relF = barre.fret - baseFret;
+      if (relF >= 0 && relF < nFrets) {
+        const x = LEFT + (relF + 0.5) * fretW;
+        const rowBottom = 5 - barre.from;
+        el('line', { x1: x, y1: TOP, x2: x, y2: TOP + rowBottom * rowGap, class: 'cd-barre-tab' }, svg);
+      }
+    }
+    rows.forEach((f, row) => {
+      const y = TOP + row * rowGap;
+      const arrayIdx = 5 - row;
+      if (f === -1) { txt(svg, LEFT - 8, y + 3, '×', 'cd-mute'); return; }
+      if (f === 0) { el('circle', { cx: LEFT - 8, cy: y, r: 3, class: 'cd-open' }, svg); return; }
+      const relF = f - baseFret;
+      if (relF >= 0 && relF < nFrets) {
+        const x = LEFT + (relF + 0.5) * fretW;
+        const onBarre = barre && f === barre.fret && arrayIdx >= barre.from;
+        if (!onBarre) {
+          el('circle', { cx: x, cy: y, r: 5.6, class: 'cd-dot' }, svg);
+          if (fingers && fingers[arrayIdx] > 0) txt(svg, x, y + 3, String(fingers[arrayIdx]), 'cd-finger-tab');
+        }
+      }
+    });
+    return svg;
+  }
+
+  /* =========================================
    * 2. TAB譜 (ギター6弦 / ベース4弦)
    * events: [{time(beat), dur, notes:[{string, fret}]}]  string:0=最低弦
    * chords: コード進行(ギターのみ表示)
@@ -625,5 +685,5 @@ const Renderer = (() => {
     }
   }
 
-  return { chordDiagram, tabSVG, staffSVG, chordGrid, usedChordStrip, svgToPng };
+  return { chordDiagram, chordDiagramTab, tabSVG, staffSVG, chordGrid, usedChordStrip, svgToPng };
 })();
